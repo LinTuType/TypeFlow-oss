@@ -16,7 +16,9 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [forgotHint, setForgotHint] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [forgotBusy, setForgotBusy] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +41,21 @@ export default function Login() {
       setMsg({ ok: false, text: (err as Error).message });
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** 忘记密码：服务端无论邮箱存不存在都回同一句话（防枚举），直接原样展示 */
+  const submitForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotBusy(true);
+    setForgotMsg(null);
+    try {
+      const { message } = await apiAuth.forgotPassword(email);
+      setForgotMsg({ ok: true, text: message });
+    } catch (err) {
+      setForgotMsg({ ok: false, text: (err as Error).message });
+    } finally {
+      setForgotBusy(false);
     }
   };
 
@@ -65,6 +82,29 @@ export default function Login() {
           margin: "0 auto 36px",
         }}>登录到工作台</p>
 
+        {/* 忘记密码：内联小流程，替换整个表单区（不弹窗、不跳页） */}
+        {forgot ? (
+          <form onSubmit={submitForgot} style={{ textAlign: "left" }}>
+            <div className="field">
+              <label>注 册 邮 箱</label>
+              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@studio.com" required />
+            </div>
+            {forgotMsg && (
+              <div className={`notice ${forgotMsg.ok ? "ok" : "err"}`} style={{ marginTop: 12, marginBottom: 16 }}>
+                {forgotMsg.text}
+              </div>
+            )}
+            <button className="btn btn-primary" type="submit" disabled={forgotBusy} style={{ width: "100%" }}>
+              {forgotBusy ? "发 送 中 …" : "发送重置邮件"}
+            </button>
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setForgot(false); setForgotMsg(null); setMsg(null); }}>
+                返回登录
+              </button>
+            </div>
+          </form>
+        ) : (
         <form onSubmit={submit} style={{ textAlign: "left" }}>
           {mode === "register" && (
             <div className="field">
@@ -94,7 +134,6 @@ export default function Login() {
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
               setMode(mode === "login" ? "register" : "login");
               setMsg(null);
-              setForgotHint(false);
               setAgreed(false);
             }}>
               {mode === "login" ? "没有账号？注册" : "已有账号？登录"}
@@ -102,7 +141,7 @@ export default function Login() {
             {mode === "login" && (
               <button
                 type="button"
-                onClick={() => setForgotHint((v) => !v)}
+                onClick={() => { setForgot(true); setMsg(null); }}
                 style={{
                   border: 0, background: "none", padding: 0, cursor: "pointer",
                   fontSize: 12.5, color: "var(--ink-300)", font: "inherit",
@@ -112,14 +151,6 @@ export default function Login() {
               </button>
             )}
           </div>
-
-          {forgotHint && (
-            <div className="notice" style={{ marginBottom: 16, textAlign: "left" }}>
-              自助重置还没开放（要等邮件通道，排在后面的批次）。内测阶段请找管理员手工重置。
-              <br />
-              顺带说明：登录密码只保护云端台账，<b>不影响你本机的字体与已签发的文件</b>。
-            </div>
-          )}
 
           {/* 合规：注册必须勾选（服务端会核对，没勾直接 400） */}
           {mode === "register" && (
@@ -149,6 +180,7 @@ export default function Login() {
             {busy ? "处 理 中 …" : mode === "login" ? "登 录" : "注册并登录"}
           </button>
         </form>
+        )}
       </div>
     </div>
   );

@@ -13,6 +13,8 @@ import Security from "./pages/Security";
 import Clients from "./pages/Clients";
 import Settings from "./pages/Settings";
 import { Terms, Privacy } from "./pages/Legal";
+import ResetPassword from "./pages/ResetPassword";
+import VerifyEmail from "./pages/VerifyEmail";
 
 /** 路由守卫：未登录跳登录页 */
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -41,6 +43,9 @@ export default function App() {
       {/* 合规页：公开可读（注册页会链接过来，此时用户尚未登录） */}
       <Route path="/terms" element={<Terms />} />
       <Route path="/privacy" element={<Privacy />} />
+      {/* 邮件链接落地页：公开（用户此时必然未登录——密码重置的前提就是忘了密码） */}
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route element={<RequireAuth><Shell /></RequireAuth>}>
         <Route path="/" element={<Overview />} />
         <Route path="/fonts" element={<Fonts />} />

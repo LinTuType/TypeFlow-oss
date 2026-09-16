@@ -79,6 +79,18 @@ export const apiAuth = {
     api<{ success: boolean; token: string; tenant_id: string; expires_at: number }>("POST", "/api/login", { email, password }),
   /** 吊销服务端会话（不只是清本地 token） */
   logout: () => api<{ success: boolean }>("POST", "/api/logout"),
+  /**
+   * 忘记密码：无论邮箱存不存在，服务端都回同一句话（防账号枚举）。
+   * 邮件通道未配置时 503，message 会说明。
+   */
+  forgotPassword: (email: string) =>
+    api<{ success: boolean; message: string }>("POST", "/api/auth/forgot-password", { email }),
+  /** 用邮件里的链接换新密码；成功后旧会话全部作废 */
+  resetPassword: (token: string, password: string) =>
+    api<{ success: boolean; message: string }>("POST", "/api/auth/reset-password", { token, password }),
+  /** 邮箱验证（注册后邮件里的链接） */
+  verifyEmail: (token: string) =>
+    api<{ success: boolean; message: string }>("POST", "/api/auth/verify-email", { token }),
 };
 
 /** 账号与合规：条款补签 / 数据导出 / 注销 */

@@ -37,7 +37,7 @@
     "portal:e2e": "tsx engine/tests/e2e-portal.ts",
     "portal:e2e:full": "node scripts/run-portal-e2e.mjs",
     "oss:export": "node scripts/export-oss.mjs",
-    "test:all": "npm test && npm run webcrypto && npm run smoke && npm run recipe && npm run worker:test && npm run worker:test:d1 && npm run worker:test:entry && npm run worker:integration && npm run e2e && npm run portal:e2e",
+    "test:all": "npm test && npm run webcrypto && npm run smoke && npm run recipe && npm run worker:test && npm run worker:test:d1 && npm run worker:test:entry && npm run worker:integration && npm run e2e && npm run portal:e2e:full",
     "build:engine": "node build-browser.mjs",
     "build:signer": "node make-local-signer.mjs",
     "build": "npm run build:engine && npm run build:signer",
