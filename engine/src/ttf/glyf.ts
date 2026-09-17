@@ -9,6 +9,11 @@
  * 的编码策略：丢弃原 flags 的压缩形式，逐点重编码为
  *   -0 / ±1字节(short) / ±2字节(long)
  * 语义等价、字节可能变大，但解码结果确定。
+ *
+ * ⚠️ 唯一不可以丢的是 flags.bit0 = on-curve —— 它决定一个点是「落在笔画上的
+ * 实点」还是「把线条拉弯的控制点」。之前这里一律按实点重编码，结果是每个被
+ * 位移的汉字轮廓都退化成折线（实测 196 个字形、28355 个控制点全部归零），
+ * 而且不报错。故 onCurve 必须从解码一路带到重编码。
  */
 
 /** glyph 轮廓数据（解码后） */
@@ -22,8 +27,14 @@ export interface GlyphData {
   endPts: number[];
   /** hint 指令字节（原样保留） */
   instructions: Uint8Array;
-  /** 逐点标志位（解码所得，重编码时不再使用） */
+  /** 逐点标志位（解码所得原始字节；重编码时不直接复用，但 bit0 必须带走） */
   flags: number[];
+  /**
+   * 逐点 on-curve 语义：true = 落在笔画上的实点，false = 用于把线条拉弯的控制点。
+   * 必须原样带进重编码 —— 丢掉它，曲线会退化成控制点之间的直连折线，
+   * 字形走样且全流程不报错。
+   */
+  onCurve: boolean[];
   coords: Array<{ x: number; y: number }>;
 }
 
@@ -50,6 +61,9 @@ export function decodeSimpleGlyph(d: Uint8Array, offset: number): GlyphData | nu
   const cnt = be16Signed(d, offset);
   if (cnt <= 0) return null; // 空或复合
   const nc = cnt;
+  // 字形头 + endPts + instruction 长度字段 必须落在数据内：nc 被伪造时下面的
+  // 循环会一路读到数据外，把 undefined 当 0 用，静默产出损坏字形
+  if (offset + 10 + nc * 2 + 2 > d.length) return null;
 
   const xMin = be16Signed(d, offset + 2);
   const yMin = be16Signed(d, offset + 4);
@@ -124,6 +138,7 @@ export function decodeSimpleGlyph(d: Uint8Array, offset: number): GlyphData | nu
     endPts,
     instructions,
     flags,
+    onCurve: flags.map((f) => (f & ON_CURVE) !== 0),
     coords,
   };
 }
@@ -138,8 +153,15 @@ function s16(v: number, out: Uint8Array, oo: number) {
  * 按（简单但确定）策略重编码字形：flags + 相对 delta。
  * x/y 一律：0 → SAMES，|v|≤63 非0 → SHORT+符号，其余 → 2 字节长格式。
  * 返回编码字节（不含 header 与 endPts/instructions，调用方组装）。
+ *
+ * @param onCurve 逐点 on-curve 语义（解码所得）。该点为 false 时写控制点，
+ *   其余写实点。**新增调用方必须传**：省略会退化成「全部实点」，
+ *   即历史上那个「每个被水印的汉字都走样」的缺陷。
  */
-export function encodePoints(coords: Array<{ x: number; y: number }>): {
+export function encodePoints(
+  coords: Array<{ x: number; y: number }>,
+  onCurve?: boolean[],
+): {
   flags: number[];
   flagBytes: number[];
   xBytes: number[];
@@ -159,7 +181,8 @@ export function encodePoints(coords: Array<{ x: number; y: number }>): {
     px = coords[i].x;
     py = coords[i].y;
 
-    let f = ON_CURVE;
+    // bit0 = on-curve：沿用解码所得语义（控制点必须仍是控制点）
+    let f = onCurve?.[i] === false ? 0 : ON_CURVE;
     // x
     if (dx === 0) f |= X_SAME;
     else if (dx >= -63 && dx <= 63) {
@@ -192,7 +215,7 @@ export function encodePoints(coords: Array<{ x: number; y: number }>): {
  * 将 GlyphData 编码为 glyf 表内完整字形字节（header + endPts + instr + flags + coords）
  */
 export function encodeGlyph(g: GlyphData): Uint8Array {
-  const { flagBytes, xBytes, yBytes } = encodePoints(g.coords);
+  const { flagBytes, xBytes, yBytes } = encodePoints(g.coords, g.onCurve);
   const headerLen = 10;
   const endPtsLen = g.endPts.length * 2;
   const instrLen = 2 + g.instructions.length;
@@ -272,6 +295,7 @@ export function readGlyphRaw(d: Uint8Array, offset: number): {
 } | null {
   const nc = be16Signed(d, offset);
   if (nc <= 0) return null;
+  if (offset + 10 + nc * 2 + 2 > d.length) return null; // endPts 越界（伪造 nc）
   const xMin = be16Signed(d, offset + 2);
   const yMin = be16Signed(d, offset + 4);
   const xMax = be16Signed(d, offset + 6);

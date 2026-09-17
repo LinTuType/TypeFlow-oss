@@ -75,7 +75,7 @@ export function rebuildFont(
   const nameLen = raw.tableLengths.get("name");
   const cmapOff = raw.tableOffsets.get("cmap");
   for (const t of ["glyf", "loca", "head", "maxp", "hmtx", "name", "cmap"]) {
-    if (!raw.tableOffsets.has(t)) throw new TtfParseError(`缺少 ${t} 表`);
+    if (!raw.tableOffsets.has(t)) throw new TtfParseError(`不是受支持的 TTF 字体（缺少 ${t} 表）。暂不支持 OTF/CFF——请改用 TTF 格式`);
   }
 
   const nGlyphs = be16(data, maxpOff! + 4);
@@ -183,6 +183,10 @@ export function rebuildFont(
     newHead[off + 1] = v & 0xff;
   };
   setS16(36, gxMin); setS16(38, gyMin); setS16(40, gxMax); setS16(42, gyMax);
+  // checkSumAdjustment 必须先归零再往下走：sfnt 规范要求 head 表的 tableChecksum
+  // 按该字段为 0 计算。此前是写完目录 checksum 之后才清（assembleSfnt 里那一步），
+  // 结果目录里登记的 head checksum 与 head 表实际内容对不上，严格校验器会报错。
+  newHead[8] = 0; newHead[9] = 0; newHead[10] = 0; newHead[11] = 0;
 
   // --- 5. hmtx：lsb 更新（= 原 lsb + shift；advance 不变） ---
   // 先读原 hmtx 总长
@@ -262,10 +266,20 @@ function assembleSfnt(
   // sfnt header
   // sfntVersion: 从原文件复制
   out[0] = raw.data[0]; out[1] = raw.data[1]; out[2] = raw.data[2]; out[3] = raw.data[3];
-  out[4] = 0; out[5] = tableBytes.length; // numTables (≤255)
-  out[6] = 0; out[7] = 0; // searchRange
-  out[8] = 0; out[9] = 0;
-  out[10] = 0; out[11] = 0;
+  // numTables 与三个查找参数必须按规范算：此前三处恒写 0、表数只写低字节，
+  // 严格校验器与部分平台加载器会因此拒载。
+  // 规范：searchRange = 2^floor(log2 n) × 16；entrySelector = log2(searchRange/16)；
+  //       rangeShift = n × 16 − searchRange
+  const nTables = tableBytes.length;
+  let pow2 = 1;
+  while (pow2 * 2 <= nTables) pow2 *= 2;
+  const searchRange = pow2 * 16;
+  const entrySelector = Math.round(Math.log2(pow2));
+  const rangeShift = nTables * 16 - searchRange;
+  out[4] = (nTables >> 8) & 0xff; out[5] = nTables & 0xff;
+  out[6] = (searchRange >> 8) & 0xff; out[7] = searchRange & 0xff;
+  out[8] = (entrySelector >> 8) & 0xff; out[9] = entrySelector & 0xff;
+  out[10] = (rangeShift >> 8) & 0xff; out[11] = rangeShift & 0xff;
 
   // 表记录
   let cursor = directoryLen;

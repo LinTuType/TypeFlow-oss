@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { getToken } from "./api/client";
+import { cleanupLegacyStorage } from "./lib/db";
 
 import Shell from "./components/AppShell";
 import Login from "./pages/Login";
@@ -16,6 +18,16 @@ import { Terms, Privacy } from "./pages/Legal";
 import ResetPassword from "./pages/ResetPassword";
 import VerifyEmail from "./pages/VerifyEmail";
 
+/** 启动时清理 P0/P3 遗留并申请持久化存储 */
+function usePersist() {
+  useEffect(() => {
+    cleanupLegacyStorage();
+    if (navigator.storage?.persist) {
+      navigator.storage.persist().catch(() => void 0);
+    }
+  }, []);
+}
+
 /** 路由守卫：未登录跳登录页 */
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const token = getToken();
@@ -27,6 +39,7 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
 }
 
 export default function App() {
+  usePersist();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -38,6 +51,7 @@ export default function App() {
   }, [location.pathname, navigate]);
 
   return (
+    <ErrorBoundary>
     <Routes>
       <Route path="/login" element={<Login />} />
       {/* 合规页：公开可读（注册页会链接过来，此时用户尚未登录） */}
@@ -59,5 +73,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </ErrorBoundary>
   );
 }

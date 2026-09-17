@@ -11,9 +11,9 @@ import { useEffect, useState } from "react";
 import { ALGO_VERSION } from "@engine/webv1";
 import {
   PROOF_SOURCES, scanNetworkCalls, sha256Text,
-  REPO_URL, OFFLINE_TOOL_PATH, OUTBOUND_FIELDS, NEVER_OUTBOUND,
+  REPO_URL, OFFLINE_TOOL_PATH, OUTBOUND_FIELDS, NEVER_OUTBOUND, OSS_SCOPE,
 } from "../lib/trust";
-import { PageHeader, Spinner } from "../components/ui";
+import { Button, InfoI, PageHeader, Spinner } from "../components/ui";
 
 /** 本页自证：打开页面时实时计算（file:// 下诚实降级） */
 async function computeSelfHash(): Promise<string> {
@@ -47,16 +47,12 @@ export default function Security() {
     <>
       <PageHeader
         title="安全与信任"
-        sub="本页说明数据边界、算法版本与自证方式。下列声明均可独立核验，相关证据在页面打开时实时计算。"
+        sub="本页说明数据边界、算法版本与自证方式。下列声明均可独立核验，证据在页面打开时实时计算。"
       />
-
-      <div className="lead">
-        <p>本机与云端之间的全部数据传输项在下图中逐项列出，此外不存在其他出网通道。</p>
-      </div>
 
       {/* 数据流向图（原型 v9 重绘版式，色值取当前规格 token） */}
       <svg viewBox="0 0 680 264" style={{ width: "100%", height: "auto", display: "block", marginTop: 40 }}
-        role="img" aria-label="数据流向：字体文件只在本机，仅哈希与订单信息出网">
+        role="img" aria-label="数据流向：字体文件只在本机，出网仅字体哈希与订单信息">
         <defs>
           <marker id="arr-ok" markerWidth="7" markerHeight="7" refX="6" refY="2.5" orient="auto">
             <path d="M0,0 L6,2.5 L0,5 z" fill="#102d50" />
@@ -83,8 +79,8 @@ export default function Security() {
         {/* ① 出网 */}
         <text x="256" y="78" style={{ font: "500 10px var(--mono)" }} fill="#102d50" letterSpacing="1">① 出网</text>
         <line x1="256" y1="88" x2="448" y2="88" stroke="#102d50" strokeWidth="1.5" markerEnd="url(#arr-ok)" />
-        <text x="256" y="106" fontSize="10.5" fill="#67645f">字体哈希 · 订单信息 · 水印产出哈希</text>
-        <text x="256" y="122" fontSize="10.5" fill="#918d86">总数据量不足 1 KB，不含任何字体内容</text>
+        <text x="256" y="106" fontSize="10.5" fill="#67645f">字体哈希 · 订单信息 · 水印哈希</text>
+        <text x="256" y="122" fontSize="10.5" fill="#918d86">每请求合计不足 1 KB，不含任何字体内容</text>
         {/* 被禁止通道 */}
         <line x1="256" y1="150" x2="448" y2="150" stroke="#aa573d" strokeWidth="1.25" strokeDasharray="5 4" opacity="0.8" />
         <line x1="344" y1="141" x2="360" y2="159" stroke="#aa573d" strokeWidth="1.75" />
@@ -96,27 +92,46 @@ export default function Security() {
         <text x="256" y="228" fontSize="10.5" fill="#67645f">订单配方 · 32 字节种子，不含主密钥</text>
         {/* 底注 */}
         <text x="340" y="254" textAnchor="middle" fontSize="10.5" fill="#918d86">
-          通道 ① 为本页面全部出网数据；字体处理均在本地节点内完成
+          通道 ① 为全部业务出网数据；字体处理均在本地完成
         </text>
       </svg>
 
       {/* OUTBOUND / NEVER 双栏（原型 facts） */}
-      <div className="facts" style={{ marginTop: 34 }}>
+      <div className="facts">
         <div>
           <div className="kicker">OUTBOUND</div>
-          <div className="section-title">出网数据项</div>
-          <ul style={{ margin: "12px 0 0", paddingLeft: 18, fontSize: 13, lineHeight: 1.9, color: "var(--sub)" }}>
+          <div className="section-title">出网数据项
+            <InfoI>本清单与上方数据流向图逐项列出与字体及业务相关的全部出网数据，不存在其他业务出网通道。账号服务（登录、验证邮件等）与字体无关，详见《隐私政策》。</InfoI>
+          </div>
+          <ul>
             {OUTBOUND_FIELDS.map((f) => (
-              <li key={f.name}><b style={{ color: "var(--ink)" }}>{f.name}</b>：{f.detail}</li>
+              <li key={f.name}><b>{f.name}</b>：{f.detail}</li>
             ))}
           </ul>
         </div>
         <div>
-          <div className="kicker" style={{ color: "var(--rust)" }}>NEVER</div>
+          <div className="kicker">NEVER</div>
           <div className="section-title">本地专属数据</div>
-          <ul style={{ margin: "12px 0 0", paddingLeft: 18, fontSize: 13, lineHeight: 1.9, color: "var(--sub)" }}>
+          <ul>
             {NEVER_OUTBOUND.map((n) => <li key={n}>{n}</li>)}
           </ul>
+        </div>
+      </div>
+
+      {/* 开源范围（决策点 3 拍板结果上屏——原先这段唯一渲染在没人引用的死组件里） */}
+      <div className="drow"><small>开源范围 · 公开部分为可自证内容，私有部分另行评估</small>
+        <div className="sublist">
+          {OSS_SCOPE.map((o) => (
+            <div key={o.area}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: o.open ? "var(--green)" : "var(--rust)" }}>
+                  {o.open ? "✓ 公开" : "✕ 私有"}
+                </span>
+                <span style={{ fontSize: 12.5 }}>{o.area}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{o.why}</div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -124,34 +139,35 @@ export default function Security() {
       <div className="drow"><small>算法版本</small>
         <b><span className="mono" style={{ fontSize: 15 }}>{ALGO_VERSION}</span>（已冻结，改动需升版本号）</b>
       </div>
-      <div className="drow"><small>源码自证 · 引擎 {PROOF_SOURCES.length} 个源文件在浏览器内实时计算哈希并扫描网络调用（<a href={REPO_URL} target="_blank" rel="noreferrer" style={{ color: "var(--navy)" }}>开源仓库：引擎 + 门户公开，签发服务端私有</a>）</small>
-        <div>
+      <div className="drow"><small>源码自证 · 浏览器内对上述 {PROOF_SOURCES.length} 个关键源文件实时计算 SHA-256 并扫描网络调用（<a href={REPO_URL} target="_blank" rel="noreferrer" style={{ color: "var(--navy)" }}>开源仓库：引擎与门户公开，签发服务端私有</a>）</small>
+        <div className="sublist">
           {PROOF_SOURCES.map((p) => {
             const scan = scanNetworkCalls(p.source);
             const open = openPath === p.path;
+            const verdict = scan.clean
+              ? { text: "✓ 无网络调用", color: "var(--green)" }
+              : p.expectNet
+                ? { text: "✓ 仅限预期出网", color: "var(--navy)" }
+                : { text: `✕ 发现 ${scan.hits.join(" / ")}`, color: "var(--rust)" };
             return (
-              <div key={p.path} style={{ borderTop: "1px solid var(--line)", paddingTop: 8, marginTop: 8 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 12, color: scan.clean ? "var(--ok)" : "var(--danger)", fontWeight: 600 }}>
-                    {scan.clean ? "✓ 无网络调用" : `✕ 发现 ${scan.hits.join(" / ")}`}
+              <div key={p.path}>
+                <div className="proof-head">
+                  <span style={{ fontSize: 12, color: verdict.color, fontWeight: 600 }}>
+                    {verdict.text}
                   </span>
-                  <code style={{ fontSize: 12 }}>{p.path}</code>
-                  <button className="btn btn-ghost btn-sm" style={{ marginLeft: "auto" }}
+                  <code className="proof-path">{p.path}</code>
+                  <Button variant="ghost" size="sm"
                     onClick={() => setOpenPath(open ? null : p.path)}>
                     {open ? "收起源码" : "查看源码"}
-                  </button>
+                  </Button>
                 </div>
-                <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
-                  {p.title} · SHA-256 {hashes[p.path]
-                    ? <code style={{ fontSize: 10.5 }}>{hashes[p.path]}</code>
+                <div className="proof-meta">
+                  {p.title}{p.expectNet && `——${p.expectNet}`} · SHA-256 {hashes[p.path]
+                    ? <code>{hashes[p.path]}</code>
                     : <Spinner />}
                 </div>
                 {open && (
-                  <pre style={{
-                    marginTop: 8, maxHeight: 260, overflow: "auto", background: "var(--subtle)",
-                    border: "1px solid var(--line)", borderRadius: 8,
-                    padding: 12, fontSize: 11.5, lineHeight: 1.55, color: "var(--sub)",
-                  }}>{p.source}</pre>
+                  <pre className="proof-src">{p.source}</pre>
                 )}
               </div>
             );
@@ -169,7 +185,7 @@ export default function Security() {
         <a className="btn btn-outline btn-md" href={OFFLINE_TOOL_PATH} download="typeflow-local-signer.html">
           下载离线签名工具
         </a>
-        <button className="btn btn-outline btn-md" onClick={runSelfCheck}>重新自检</button>
+        <Button onClick={runSelfCheck}>重新自检</Button>
       </div>
     </>
   );

@@ -17,7 +17,7 @@
 import { runSelection } from "./webv1.js";
 import { loadAnchorPool } from "./pool.js";
 import type { CryptoProvider } from "./crypto.js";
-import { parseSfnt, parseCmap, type TtfRaw } from "./ttf/reader.js";
+import { parseSfnt, parseCmap, assertSupportedTtf, type TtfRaw } from "./ttf/reader.js";
 import { readGlyphRaw } from "./ttf/glyf.js";
 import { parseNameTable } from "./ttf/name.js";
 
@@ -95,10 +95,14 @@ export function stripNameId256(data: Uint8Array): Uint8Array {
 
 /** 获取某字形当前 xMin（简单字形） */
 function glyphXMin(raw: TtfRaw, gid: number): number | null {
-  const glyfOff = raw.tableOffsets.get("glyf")!;
-  const locaOff = raw.tableOffsets.get("loca")!;
-  const headOff = raw.tableOffsets.get("head")!;
-  const maxpOff = raw.tableOffsets.get("maxp")!;
+  // 入口已过 assertSupportedTtf；这里仍防御式判空（此前是 ! 断言，OTF 会读到垃圾偏移）
+  const glyfOff = raw.tableOffsets.get("glyf");
+  const locaOff = raw.tableOffsets.get("loca");
+  const headOff = raw.tableOffsets.get("head");
+  const maxpOff = raw.tableOffsets.get("maxp");
+  if (glyfOff === undefined || locaOff === undefined || headOff === undefined || maxpOff === undefined) {
+    return null;
+  }
   const i2l = ((raw.data[headOff + 50] << 8) | raw.data[headOff + 51]) >>> 0;
   const nGlyphs = ((raw.data[maxpOff + 4] << 8) | raw.data[maxpOff + 5]) >>> 0;
   if (gid >= nGlyphs) return null;
@@ -236,6 +240,17 @@ const SCORE_WEIGHT_VOTE = 25;
 const SPACING_CONFIRM_BONUS = 10;
 
 /**
+ * 认领订单的最低置信度。
+ *
+ * 低于它只报判定、不点名订单。理由：候选循环里"分数最高者"必然存在——拿一份
+ * 毫不相干的第三方字体来查，也会有一个候选排第一；不设门槛时，那份要交给法务看
+ * 的鉴定书里就会写上一个真实客户的订单号。候选集越大，偶然命中的机会越高。
+ *
+ * 0.5 与阶段 2 攻击测试的判定口径一致（实测错误订单 0.175–0.20，正确订单 ≥0.98）。
+ */
+const TRACE_MATCH_MIN_CONFIDENCE = 0.5;
+
+/**
  * 移植桌面版 compute_confidence（bits 路径，无相关检测器）：
  * 输入通道 A 观测与预期位，输出四级判定 + 标签 + 0-100 综合分。
  */
@@ -343,6 +358,10 @@ function computeVerdict(
 export async function traceWatermark(input: TraceInput): Promise<TraceResult> {
   const { originalBytes, suspiciousBytes, masterKey, orderRoot, provider, tenantId, bitsSuffix = "" } = input;
 
+  // OTF/CFF 入口即拒绝（此前追溯路径会读到垃圾偏移、给出无意义判定）
+  assertSupportedTtf(originalBytes);
+  assertSupportedTtf(suspiciousBytes);
+
   const nameId256 = readNameId256(suspiciousBytes);
 
   // 候选订单：优先从 Name 256 读取，否则用入参
@@ -444,6 +463,10 @@ export async function traceWatermark(input: TraceInput): Promise<TraceResult> {
       votes: 0,
       total: 0,
     };
+  }
+  // 门槛：分数不够就不认领订单（候选与判定照常返回，界面据此呈现「存疑／无法确认」）
+  if (best.confidence < TRACE_MATCH_MIN_CONFIDENCE) {
+    return { ...best, matchedOrder: null };
   }
   return best;
 }

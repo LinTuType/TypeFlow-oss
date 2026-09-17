@@ -7,10 +7,19 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { apiOrders, type OrderInfo } from "../api/client";
+import { Link, useNavigate } from "react-router-dom";
+import { apiOrders, apiTrace, type OrderInfo } from "../api/client";
+import { listCustomers } from "../lib/localCustomers";
+import { listOrderNotes, type LocalOrderNote } from "../lib/localOrders";
+import { getLocalFontData, sha256Of } from "../lib/localFonts";
+import { localEmbed, downloadBytes } from "../lib/issuer";
+import { buildDeliveryZip } from "../lib/delivery";
+import { readFoundry } from "../lib/foundry";
+import { maybeFolderBackup } from "../lib/backupFolder";
 import { toast } from "../lib/toast";
-import { PageHeader, Spinner, ConfirmButton } from "../components/ui";
+import { schemeLabel } from "../lib/schemes";
+import { Modal,  Button, ConfirmButton, PageHeader, Spinner } from "../components/ui";
+import { IconCopy, IconDownload, IconBan } from "../components/Icon";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -27,23 +36,41 @@ const STATUS_TONE: Record<string, string> = {
   issued: "issued",
   canceled: "",
 };
-/** 授权方案文案（与 Issue 页 LICENSE_OPTIONS 一致） */
-const LICENSE_LABEL: Record<string, string> = {
-  enterprise: "企业商用",
-  personal_commercial: "个人商用",
-  personal: "个人版",
+/** 状态筛选（F-10）：云端订单量上来后光靠关键字搜索翻不过来 */
+const STATUS_FILTERS: { key: string; label: string }[] = [
+  { key: "", label: "全部" },
+  { key: "pending", label: "进行中" },
+  { key: "issued", label: "已签发" },
+  { key: "canceled", label: "已作废" },
+];
+
+/** 授权方案文案 —— 统一读 lib/schemes.ts（设置页可编辑增删，未知 key 回落原文） */
+const schemeName = (note: LocalOrderNote | undefined, fallback?: string): string =>
+  note?.licenseType ? schemeLabel(note.licenseType) : schemeLabel(fallback ?? "");
+
+/** 授权期限文案（本机订单关联；都缺省 = 永久） */
+const termText = (note: LocalOrderNote | undefined): string => {
+  if (!note?.licenseStart && !note?.licenseEnd) return "永久";
+  const fmt = (ms?: number) => (ms ? new Date(ms).toLocaleDateString("sv-SE") : "—");
+  return `${fmt(note?.licenseStart)} 至 ${fmt(note?.licenseEnd)}`;
 };
 
 export default function Orders() {
   const [orders, setOrders] = useState<OrderInfo[]>([]);
+  const [clientNameById, setClientNameById] = useState<Map<string, string>>(new Map());
+  const [localByOrderId, setLocalByOrderId] = useState<Map<string, LocalOrderNote>>(new Map());
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [sel, setSel] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
-      const o = await apiOrders.list();
+      const [o, cs, notes] = await Promise.all([apiOrders.list(), listCustomers(), listOrderNotes()]);
       setOrders(o.orders ?? []);
+      setClientNameById(new Map(cs.map((c) => [c.id, c.name])));
+      setLocalByOrderId(new Map(notes.map((n) => [n.orderId, n])));
     } catch (e) {
       toast.error("订单加载失败", { detail: (e as Error).message });
     } finally {
@@ -53,19 +80,32 @@ export default function Orders() {
 
   useEffect(() => { void load(); }, [load]);
 
-  /** 本地过滤：订单号 / 字体 / 客户 */
+  /** 客户名解析：走本机订单关联（orderId → clientId → 姓名）——云端不记录客户 */
+  const clientName = (o: OrderInfo) => {
+    const cid = localByOrderId.get(o.order_id)?.clientId;
+    return cid ? (clientNameById.get(cid) ?? "未识别客户") : "—";
+  };
+
+  /** 本地过滤：状态 + 订单号 / 字体 / 客户名 */
   const filtered = useMemo(() => {
+    let list = orders;
+    if (statusFilter === "pending") list = list.filter((o) => ["draft", "prepared", "recipe_issued"].includes(o.status));
+    else if (statusFilter) list = list.filter((o) => o.status === statusFilter);
     const k = q.trim().toLowerCase();
-    if (!k) return orders;
-    return orders.filter((o) =>
+    if (!k) return list;
+    return list.filter((o) =>
       o.order_id.toLowerCase().includes(k) ||
       o.font_id.toLowerCase().includes(k) ||
       (o.font_name ?? "").toLowerCase().includes(k) ||
-      (o.client_ref ?? "").toLowerCase().includes(k),
+      clientName(o).toLowerCase().includes(k),
     );
-  }, [orders, q]);
+  }, [orders, q, statusFilter, clientNameById, localByOrderId]);
 
   const selOrder = orders.find((o) => o.order_id === sel) ?? null;
+  const selNote = selOrder ? localByOrderId.get(selOrder.order_id)?.note : undefined;
+  /** 金额 / 授权方案 / 期限都在本机订单关联（2026-09-17 起云端不含这些字段） */
+  const noteOf = (o: OrderInfo) => localByOrderId.get(o.order_id);
+  const orderAmount = (o: OrderInfo) => noteOf(o)?.amount;
 
   /** 作废订单（仅未签发可取消；确认+ 级操作） */
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -83,8 +123,101 @@ export default function Orders() {
     }
   };
 
+  /** 复制签发配方（供「离线签发工具」使用；配方幂等可重放，仅含订单种子） */
+  const [copyBusy, setCopyBusy] = useState(false);
+  const doCopyRecipe = async () => {
+    if (!selOrder) return;
+    setCopyBusy(true);
+    try {
+      const res = await apiTrace.orderRecipe(selOrder.order_id);
+      if (!res.recipe) throw new Error("该订单没有可用的配方");
+      await navigator.clipboard.writeText(JSON.stringify(res.recipe, null, 2));
+      toast.success("签发配方已复制", { detail: "打开离线签发工具，粘贴配方并选择该订单的原版字体即可" });
+    } catch (e) {
+      toast.error("复制失败", { detail: (e as Error).message });
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
   /** 可作废状态：未到 issued 都允许撤销 */
   const canCancel = !!selOrder && ["draft", "prepared", "recipe_issued"].includes(selOrder.status);
+
+  /**
+   * 重新生成交付包（P1-1 剩余部分）
+   *
+   * 水印字体不落本地库，但嵌入是**确定性**的：「本机原版字体 + 云端配方」重算，
+   * 得到的字节与当初签发的那份完全相同——所以「重新下载」不需要云端存字体。
+   *
+   * 三道前置，缺哪个就说清哪个（不给一句笼统的"失败"）：
+   *   ① 订单已签发（未签发没有回执，重算出来也证明不了是同一份）；
+   *   ② 这台设备上有该订单的原版字体（云端只有哈希，字体从来不上传）；
+   *   ③ 云端有配方快照（订单详情里「复制签发配方」能拿到的前提）。
+   * 重算后拿水印哈希与云端回执比对，一致才说"就是当初那一份"。
+   */
+  const [regenBusy, setRegenBusy] = useState(false);
+  const doRegenerate = async () => {
+    if (!selOrder) return;
+    const order = selOrder;
+    setRegenBusy(true);
+    try {
+      // ① 本机原版字体：本机 id = 云端 font_<sha16> 去掉前缀
+      const localId = order.font_id.replace(/^font_/, "");
+      const data = await getLocalFontData(localId);
+      if (!data) {
+        throw new Error(
+          `这台设备上没有该订单的原版字体（${localId.slice(0, 10)}…）。` +
+          "请在「字体库」重新添加同一份字体文件，再回到订单页重试——云端只存哈希，字体从未上传。",
+        );
+      }
+      // 防呆：拿错字体会算出一份"看着像却对不上"的交付物，先按哈希前缀卡住
+      const sha = await sha256Of(data);
+      if (!sha.startsWith(localId)) {
+        throw new Error("本机这份字体的哈希与订单登记的不一致（可能只是同名文件），已中止——重算出错比不重算危险");
+      }
+
+      // ② 云端配方（幂等，只含订单种子，不含主密钥）
+      const res = await apiTrace.orderRecipe(order.order_id);
+      if (!res.recipe) throw new Error("该订单没有可用的配方快照，无法重算");
+
+      // ③ 本地重算并组包（与当初签发同一条路径）
+      const sign = await localEmbed(data, res.recipe);
+      const name = clientName(order);
+      const zip = buildDeliveryZip({
+        orderId: order.order_id,
+        fontName: order.font_name || localId,
+        clientRef: name === "—" || name === "未识别客户" ? "" : name,
+        licenseType: noteOf(order)?.licenseType ?? "enterprise",
+        licensor: readFoundry(),
+        amount: noteOf(order)?.amount,
+        // 原签发时间：issued 状态下 updated_at 就是完成时间
+        issuedAt: new Date(order.updated_at ?? order.created_at).toLocaleString("zh-CN"),
+        fontSha256: sha,
+        watermarkedSha256: sign.watermarkedSha256,
+        nModified: sign.nModified,
+        watermarkedFont: sign.fontBytes,
+      });
+      downloadBytes(zip, `${order.order_id}_交付包.zip`, "application/zip");
+      maybeFolderBackup();
+
+      const receipt = order.watermarked_sha256;
+      if (receipt && receipt !== sign.watermarkedSha256) {
+        toast.warn("交付包已生成，但水印哈希与云端回执不一致", {
+          detail: "请改用「复制签发配方」到离线签发工具重出，并把这一单反馈给我们",
+        });
+      } else {
+        toast.success("交付包已重新生成", {
+          detail: receipt
+            ? "水印哈希与云端回执一致——这份就是当初那一份"
+            : "与当初签发走同一条本地路径，内容一致",
+        });
+      }
+    } catch (e) {
+      toast.error("重新生成失败", { detail: (e as Error).message });
+    } finally {
+      setRegenBusy(false);
+    }
+  };
 
   return (
     <>
@@ -99,6 +232,17 @@ export default function Orders() {
           </>
         }
       />
+
+      {/* 状态筛选：下划线式三态 + 全部（与设置页印章形状同一套选择语言） */}
+      <div className="choice" role="radiogroup" aria-label="按状态筛选订单" style={{ marginBottom: 18 }}>
+        {STATUS_FILTERS.map((f) => (
+          <button key={f.key} type="button" role="radio" aria-checked={statusFilter === f.key}
+            className={statusFilter === f.key ? "on" : ""}
+            onClick={() => setStatusFilter(f.key)}>
+            {f.label}
+          </button>
+        ))}
+      </div>
 
       {loading ? (
         <div className="loading-block"><Spinner />载入订单…</div>
@@ -116,10 +260,10 @@ export default function Orders() {
             <div key={o.order_id} className="trow order-cols"
               onClick={() => setSel(o.order_id)} role="button" tabIndex={0}>
               <span className="mono" style={{ fontSize: 12 }}>{o.order_id}</span>
-              <span>{o.client_ref || <span style={{ color: "var(--muted)" }}>—</span>}</span>
+              <span>{clientName(o)}</span>
               <span className="ellipsis">{o.font_name || o.font_id}</span>
-              <span style={{ fontSize: 12 }}>{LICENSE_LABEL[o.license_type ?? ""] ?? o.license_type ?? "—"}</span>
-              <span style={{ fontSize: 12 }}>{o.amount ? <>¥ {o.amount}</> : <span style={{ color: "var(--muted)" }}>—</span>}</span>
+              <span style={{ fontSize: 12 }}>{schemeName(noteOf(o))}</span>
+              <span style={{ fontSize: 12 }}>{orderAmount(o) ? <>¥ {orderAmount(o)}</> : <span style={{ color: "var(--muted)" }}>—</span>}</span>
               <span className={`status ${STATUS_TONE[o.status] ?? ""}`}>
                 {STATUS_LABEL[o.status] ?? o.status}
               </span>
@@ -128,10 +272,10 @@ export default function Orders() {
         </div>
       )}
 
-      {/* ── 订单详情模态框（原型 .modal 语言） ── */}
+      {/* ── 订单详情模态框（共用 Modal：Esc / 焦点圈定 / 滚动锁） ── */}
       {selOrder && (
-        <div className="modal-back open" onClick={(e) => { if (e.target === e.currentTarget) setSel(null); }}>
-          <div className="modal" role="dialog" aria-label="订单详情">
+        <Modal onClose={() => setSel(null)} label="订单详情">
+          {(close) => (<>
             <h2 style={{ font: "600 20px/1.4 var(--serif)" }}>{selOrder.order_id}</h2>
             <div className="kv"><div className="kv-k">状态</div>
               <div className="kv-v">
@@ -141,21 +285,36 @@ export default function Orders() {
               </div>
             </div>
             <div className="kv"><div className="kv-k">字体</div>
-              <div className="kv-v">{selOrder.font_name || <span style={{ color: "var(--muted)" }}>未命名</span>}
+              <div className="kv-v">
+                <button className="kv-link" onClick={() => navigate("/fonts")}
+                  title="到字体库查看">{selOrder.font_name || "未命名"}</button>
                 <span className="mono" style={{ display: "block", fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{selOrder.font_id}</span>
               </div>
             </div>
-            <div className="kv"><div className="kv-k">被授权方</div><div className="kv-v">{selOrder.client_ref || "—"}</div></div>
+            <div className="kv"><div className="kv-k">被授权方</div>
+              <div className="kv-v">
+                {(() => {
+                  const cid = localByOrderId.get(selOrder.order_id)?.clientId;
+                  return cid ? (
+                    <button className="kv-link" onClick={() => navigate("/customers", { state: { focusClientId: cid } })}
+                      title="查看客户详情">{clientName(selOrder)}</button>
+                  ) : <span style={{ color: "var(--muted)" }}>—</span>;
+                })()}
+              </div>
+            </div>
             <div className="kv"><div className="kv-k">授权方案</div>
-              <div className="kv-v">{LICENSE_LABEL[selOrder.license_type ?? ""] ?? selOrder.license_type ?? "—"}</div>
+              <div className="kv-v">{schemeName(noteOf(selOrder))}</div>
+            </div>
+            <div className="kv"><div className="kv-k">授权期限</div>
+              <div className="kv-v">{termText(noteOf(selOrder))}</div>
             </div>
             <div className="kv"><div className="kv-k">授权费用</div>
-              <div className="kv-v">{selOrder.amount ? <>¥ {selOrder.amount}</> : "—"}</div>
+              <div className="kv-v">{orderAmount(selOrder) ? <>¥ {orderAmount(selOrder)}</> : "—"}</div>
             </div>
             <div className="kv"><div className="kv-k">创建时间</div>
               <div className="kv-v">{new Date(selOrder.created_at).toLocaleString("zh-CN")}</div>
             </div>
-            {selOrder.note && <div className="kv"><div className="kv-k">备注</div><div className="kv-v">{selOrder.note}</div></div>}
+            {selNote && <div className="kv"><div className="kv-k">备注</div><div className="kv-v">{selNote}</div></div>}
 
             {selOrder.status === "recipe_issued" && (
               <div className="notice warn" style={{ marginTop: 14 }}>
@@ -164,7 +323,8 @@ export default function Orders() {
             )}
             {selOrder.status === "issued" && (
               <div className="notice ok" style={{ marginTop: 14 }}>
-                已签发完成。如需验证字体来源，可用「追溯」功能。
+                已签发完成。如需重新拿到交付文件，点下方「重新生成交付包」——用本机原版字体
+                与云端配方重算，结果与当初一致（字体从未上传，换设备需先在本机字体库补上它）。
               </div>
             )}
             {selOrder.status === "canceled" && (
@@ -174,15 +334,26 @@ export default function Orders() {
             )}
 
             <div className="modal-actions">
-              <button className="btn btn-outline btn-md" onClick={() => setSel(null)}>关闭</button>
+              <Button onClick={close}>关闭</Button>
+              {selOrder.status === "issued" && (
+                <Button variant="primary" disabled={regenBusy} onClick={() => void doRegenerate()}>
+                  <IconDownload size={14} />{regenBusy ? "重算中…" : "重新生成交付包"}
+                </Button>
+              )}
+              {["recipe_issued", "issued"].includes(selOrder.status) && (
+                <Button disabled={copyBusy} onClick={() => void doCopyRecipe()}>
+                  <IconCopy size={14} />{copyBusy ? "复制中…" : "复制签发配方"}
+                </Button>
+              )}
               {canCancel && (
-                <ConfirmButton label="作废订单" confirmLabel="确认作废"
+                <ConfirmButton label="" confirmLabel="确认作废" title="作废订单"
                   danger disabled={cancelBusy} busy={cancelBusy}
+                  icon={<IconBan size={13} />}
                   onConfirm={() => void doCancel()} />
               )}
             </div>
-          </div>
-        </div>
+          </>)}
+        </Modal>
       )}
     </>
   );

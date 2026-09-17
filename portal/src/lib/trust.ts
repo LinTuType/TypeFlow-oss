@@ -12,16 +12,18 @@
 import embedSrc from "@engine/embed.ts?raw";
 import localFontsSrc from "./localFonts.ts?raw";
 import issuerSrc from "./issuer.ts?raw";
+import apiClientSrc from "../api/client.ts?raw";
+import securityPageSrc from "../pages/Security.tsx?raw";
 
 /** 开源仓库（公开镜像，内容由 scripts/export-oss.mjs 从主仓库导出：engine + portal + 自证清单） */
 export const REPO_URL = "https://github.com/LinTuType/TypeFlow-oss";
 
 /** 开源范围（决策点 3，2026-09-16 拍板）：engine + portal公开，签发服务 worker 暂不公开 */
 export const OSS_SCOPE: Array<{ area: string; open: boolean; why: string }> = [
-  { area: "engine/（水印引擎）", open: true, why: "算法与嵌入逻辑——信任页「源码自证」算哈希的就是这些文件" },
-  { area: "portal/（门户前端）", open: true, why: "上传行为全在这里，代码公开即可核验「没有偷偷发文件」" },
-  { area: "自证清单 MANIFEST", open: true, why: "记录导出时的主仓库 commit 与逐文件 SHA-256，供与部署产物对照" },
-  { area: "worker/（配方签发服务）", open: false, why: "服务端代码，持有密钥与租户数据；是否开源单独决策，不影响以上可核验链" },
+  { area: "engine/（水印引擎）", open: true, why: "水印算法与嵌入逻辑，信任页「源码自证」即以其实时哈希为证" },
+  { area: "portal/（门户前端）", open: true, why: "上传行为均在前端实现，代码公开即可核验无隐蔽传输" },
+  { area: "自证清单 MANIFEST", open: true, why: "记录导出时的主仓库提交与逐文件 SHA-256，供与部署产物比对" },
+  { area: "worker/（配方签发服务）", open: false, why: "服务端代码，持有密钥与租户数据；是否开源另行决策，不影响前述可核验链路" },
 ];
 
 /** 离线签发工具（可选下载，非主流程）：由 make-local-signer.mjs 产出到 portal/public */
@@ -34,10 +36,25 @@ export interface SourceProof {
   title: string;
   /** 源码全文（构建期真实导入） */
   source: string;
+  /** 允许的网络调用说明。不填 = 该文件应当零网络调用（扫到即FAIL）；
+      填了 = 扫到时展示这句"仅限预期出网"而不是报错 */
+  expectNet?: string;
 }
 
-/** 参与自证的源码：挑最能让用户放心的三段 */
+/** 参与自证的源码：三个"本来就不该有网络调用"的纯净文件 + 一个"唯一允许出网"的文件 */
 export const PROOF_SOURCES: SourceProof[] = [
+  {
+    path: "portal/src/api/client.ts",
+    title: "门户 API 客户端：业务请求的唯一出口——所有 /api 调用都从这里发出",
+    source: apiClientSrc,
+    expectNet: "仅调用本服务 /api/*（账号、哈希、订单、配方）——对应数据流向图的通道 ①",
+  },
+  {
+    path: "portal/src/pages/Security.tsx",
+    title: "本页源码：算「本页自证」哈希时会请求一次本页自身地址，不携带任何用户数据",
+    source: securityPageSrc,
+    expectNet: "仅 fetch 本页自身地址（/security），用于实时计算本页哈希——请求里没有查询参数、没有用户数据",
+  },
   {
     path: "engine/src/embed.ts",
     title: "水印嵌入主流程：读字体字节 → 改字形坐标 → 写回，纯计算",
@@ -77,10 +94,14 @@ export async function sha256Text(text: string): Promise<string> {
 }
 
 /** 出网清单：这些是唯一会离开本机的数据 */
+/**
+ * 出网清单只列**与字体和业务相关的数据**（字体 / 订单）——这是本页的议题；
+ * 账号服务（登录、验证邮件等）与字体无关，见《隐私政策》，不在这里混列。
+ * 云端订单不挂任何客户标识：哪笔订单是谁的，只有你本机的订单关联知道。
+ */
 export const OUTBOUND_FIELDS: Array<{ name: string; detail: string }> = [
-  { name: "字体 SHA-256", detail: "64 个字符，用于事后追溯比对，无法还原成字体" },
-  { name: "订单信息", detail: "订单号、客户标识、授权方案" },
-  { name: "水印产出哈希", detail: "签发后归档用，无法还原成字体" },
+  { name: "字体数据", detail: "字体名称与 SHA-256 哈希（用于登记与追溯比对，不可逆推出字体本身）" },
+  { name: "订单信息", detail: "订单号、授权方案与水印产出哈希（用于签发归档，不含客户标识与授权费用）" },
 ];
 
 /** 不出网清单 */
@@ -88,4 +109,6 @@ export const NEVER_OUTBOUND: string[] = [
   "字体文件本体（.ttf / .otf）",
   "字形轮廓与坐标数据",
   "嵌入过程与中间产物",
+  "客户资料（姓名、备注、授权费用）——仅存本机，云端不记录",
+  "备份文件——仅写入你绑定的本地文件夹，不经任何服务器",
 ];

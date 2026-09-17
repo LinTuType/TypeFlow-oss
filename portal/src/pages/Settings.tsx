@@ -1,71 +1,54 @@
 /**
- * 设置页 —— 原型 v9 结构：5 条线性分组行 + 右侧滑出抽屉（220ms）
+ * 设置页 —— 6 条线性分组行，点击条目**就地向下展开**（原右侧滑出抽屉已退役）
  *
- *   厂牌信息 / 授权方案 / 本地数据与备份 / 密钥与隐私 / 操作记录
+ *   厂牌信息 / 授权方案 / 本地数据与备份 / 密钥与隐私 / 账号与合规
+ *   （操作记录不单独成区：云端段只报条数，完整台账随「导出数据」带走）
  *
- * 抽屉排版 = 小标签 + 衬线值（.drow），与签发页同语言；业务逻辑与迁移前一致。
+ * 展开体排版 = 小标签 + 衬线值（.drow），与签发页同语言；业务逻辑与迁移前一致。
  * 原则：不展示假功能。后端暂不提供的操作要么本地化，要么明确标注"内置/只读"。
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ALGO_VERSION } from "@engine/webv1";
-import { apiVault, apiAudit, apiAccount, type AuditEntry } from "../api/client";
+import { apiAudit, apiAccount, apiFonts, apiOrders, type AuditEntry } from "../api/client";
 import { clearToken } from "../api/client";
 import { listLocalFonts, removeLocalFont } from "../lib/localFonts";
 import { listCustomers, removeCustomer } from "../lib/localCustomers";
+import { listOrderNotes, clearAllOrderNotes } from "../lib/localOrders";
+import { listTraceRecords, clearAllTraceRecords } from "../lib/traceHistory";
+import { exportDataFile, importDataFile } from "../lib/backup";
 import {
-  autoBackupEnabled, setAutoBackupEnabled, getBackupCode, setBackupCode,
-  runFontsBackup, lastBackupAt, maybeAutoBackup, exportDataFile, importDataFile,
-} from "../lib/backup";
-import { isValidRecoveryCode } from "../lib/vault";
-import {
-  isFsaSupported, pickFontFolder, getFontDirHandle, clearFontDirHandle,
-  checkDirPermission, scanFontFolder,
+  isFsaSupported, pickFolder, getFolderHandle, clearFolderHandle,
+  checkFolderPerm, scanFontFolder,
 } from "../lib/fsFolder";
+import {
+  writeFolderBackup, getBackupFolderState, maybeFolderBackup,
+  snapshotLocalData, hasSnapshot, restoreSnapshot,
+} from "../lib/backupFolder";
 import { toast } from "../lib/toast";
-import { PageHeader, Spinner, ConfirmButton } from "../components/ui";
-import { IconTrash } from "../components/Icon";
+import { readFoundry, writeFoundry, clearFoundry, type Foundry, type SealShape } from "../lib/foundry";
+import {
+  listSchemes, saveSchemes, genSchemeKey, DEFAULT_SCHEMES, clearSchemes,
+  type LicenseScheme,
+} from "../lib/schemes";
+import { AccordionPanel, Button, ConfirmButton, InfoI, KV, PageHeader, Spinner } from "../components/ui";
+import { IconTrash, IconChevron, IconPencil, IconBan, IconPlus } from "../components/Icon";
 
-/* 本地厂牌配置（v1 只存本机，不联网） */
-const FOUNDRY_KEYS = {
-  name: "typeflow_foundry_name",
-  short: "typeflow_foundry_short",
-  site: "typeflow_foundry_site",
-};
-
-/** 授权方案（v1 内置，写死） */
-const BUILTIN_SCHEMES = [
-  { value: "enterprise", label: "企业商用", desc: "企业内外部使用 · 永久" },
-  { value: "personal_commercial", label: "个人商用", desc: "个人商业项目 · 永久" },
-  { value: "personal", label: "个人版", desc: "个人非商用 · 永久" },
+/** 印章形状选项（文书落款用） */
+const SEAL_OPTIONS: { value: SealShape; label: string }[] = [
+  { value: "round", label: "圆形" },
+  { value: "square", label: "方形" },
+  { value: "none", label: "不盖章" },
 ];
 
-/** 审计动作文案 */
-const AUDIT_LABEL: Record<string, string> = {
-  register: "注册",
-  login: "登录",
-  font_register: "字体登记",
-  order_create: "创建订单",
-  order_prepare: "订单准备",
-  recipe_issue: "签发配方",
-  order_complete: "完成回执",
-  order_cancel: "作废订单",
-  trace_candidates: "追溯候选",
-  trace_recipe: "追溯取配方",
-  vault_get: "读取备份",
-  vault_put: "写入备份",
-  vault_delete: "删除备份",
-};
-
-type ItemKey = "brand" | "schemes" | "data" | "keys" | "audit" | "account";
+type ItemKey = "brand" | "schemes" | "data" | "keys" | "account";
 
 const ITEM_META: { key: ItemKey; title: string; desc: string }[] = [
   { key: "brand", title: "厂牌信息", desc: "名称、简称与官网 · 用于授权书抬头" },
-  { key: "schemes", title: "授权方案", desc: "v1 内置方案 · 不提供自定义" },
-  { key: "data", title: "本地数据与备份", desc: "本机用量、云端备份状态与清空" },
+  { key: "schemes", title: "授权方案", desc: "内置三项可编辑 · 支持自定义与隐藏" },
+  { key: "data", title: "数据与备份", desc: "本机数据、备份与导出 · 云端只存登记与订单号" },
   { key: "keys", title: "密钥与隐私", desc: "算法版本与隐私边界 · 只读" },
-  { key: "audit", title: "操作记录", desc: "服务端审计台账 · 最近 50 条 · 只读" },
-  { key: "account", title: "账号与合规", desc: "条款、云端数据导出与账号注销" },
+  { key: "account", title: "账号与合规", desc: "条款、数据可携与账号注销" },
 ];
 
 /** drow 小标签 + 衬线值（原型 qrow） */
@@ -75,72 +58,93 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+/** 展开体里的分区小标题：把一串平铺的行切成可扫读的几段 */
+function BodyHead({ children }: { children: React.ReactNode }) {
+  return <div className="body-head">{children}</div>;
+}
+
 export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [openItem, setOpenItem] = useState<ItemKey | null>(null);
   const close = () => setOpenItem(null);
 
-  // 厂牌
-  const [foundry, setFoundry] = useState({ name: "", short: "", site: "" });
+  // 厂牌（授权方：抬头 / 落款 / 印章都读它，见 lib/foundry.ts）
+  const [foundry, setFoundry] = useState<Foundry>({ name: "", short: "", site: "", seal: "round" });
+
+  // 授权方案（可编辑增删；schemes.ts 是唯一数据源，签发页与文书实时跟这里同步）
+  const [schemes, setSchemes] = useState<LicenseScheme[]>([]);
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ label: "", desc: "", scopeText: "" });
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ label: "", desc: "", scopeText: "" });
+  /** 已被本机历史订单引用的方案 key（引用中的自定义方案只能隐藏、不能删） */
+  const [schemeRefs, setSchemeRefs] = useState<Set<string>>(new Set());
 
   // 本地数据
   const [fontCount, setFontCount] = useState(0);
   const [customerCount, setCustomerCount] = useState(0);
-  const [vaultExists, setVaultExists] = useState(false);
+  const [noteCount, setNoteCount] = useState(0);
+  const [traceCount, setTraceCount] = useState(0);
+
+  // 云端条数（账号与合规 / 数据与备份里逐项说明用；取不到显示 —，不影响页面）
+  const [cloudFonts, setCloudFonts] = useState<number | null>(null);
+  const [cloudOrders, setCloudOrders] = useState<number | null>(null);
 
   // 审计日志（服务端操作台账；读取失败不影响页面）
   const [audit, setAudit] = useState<AuditEntry[]>([]);
 
-  // 自动加密备份（字体清单 + 厂牌 → vault fonts）
-  const [autoOn, setAutoOn] = useState(false);
-  const [lastBk, setLastBk] = useState<number | null>(null);
-  const [showCodeInput, setShowCodeInput] = useState(false);
-  const [codeInput, setCodeInput] = useState("");
+  // 导入 / 撤销导入（走快照）共用 busy 与文件选择
   const [bkBusy, setBkBusy] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  // 字体库文件夹（File System Access API · Chromium）
+  // 本地文件夹（统一绑定：备份目标 + 字体添加入口，File System Access API）
   const fsSupported = isFsaSupported();
-  const [dirName, setDirName] = useState<string | null>(null);
-  const [dirPerm, setDirPerm] = useState<"granted" | "prompt" | "denied" | null>(null);
+  const [folderName, setFolderName] = useState<string | null>(null);
+  const [folderPerm, setFolderPerm] = useState<"granted" | "prompt" | "denied" | null>(null);
+  const [lastFolderBk, setLastFolderBk] = useState<number | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
+  const [bkBusy2, setBkBusy2] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
 
   // 账号与合规（批次 4）
   const [showDelInput, setShowDelInput] = useState(false);
   const [delPass, setDelPass] = useState("");
 
   const load = useCallback(async () => {
-    setFoundry({
-      name: localStorage.getItem(FOUNDRY_KEYS.name) ?? "",
-      short: localStorage.getItem(FOUNDRY_KEYS.short) ?? "",
-      site: localStorage.getItem(FOUNDRY_KEYS.site) ?? "",
-    });
+    setFoundry(readFoundry());
+    setSchemes(listSchemes());
     try {
-      const [lf, cs, v, a, fv] = await Promise.all([
+      const [lf, cs, notes, tr, a, cf, co] = await Promise.all([
         listLocalFonts(),
         listCustomers(),
-        apiVault.get("customers").catch(() => ({ exists: false })),
+        listOrderNotes(),
+        listTraceRecords(),
         apiAudit.list().catch(() => ({ events: [] as AuditEntry[] })),
-        apiVault.get("fonts").catch(() => ({ exists: false, updated_at: undefined })),
+        apiFonts.list().catch(() => ({ fonts: [] })),
+        apiOrders.list().catch(() => ({ orders: [] })),
       ]);
       setFontCount(lf.length);
       setCustomerCount(cs.length);
-      setVaultExists(!!v.exists);
+      setNoteCount(notes.length);
+      setSchemeRefs(new Set(notes.map((n) => n.licenseType).filter((k): k is string => !!k)));
+      setTraceCount(tr.length);
       setAudit(a.events ?? []);
-      setLastBk(fv.exists ? fv.updated_at ?? lastBackupAt() : lastBackupAt());
-      setAutoOn(autoBackupEnabled());
-      maybeAutoBackup();
+      setCloudFonts((cf.fonts ?? []).length);
+      setCloudOrders((co.orders ?? []).length);
       if (fsSupported) {
-        const h = await getFontDirHandle();
+        const h = await getFolderHandle();
         if (h) {
-          setDirName(h.name);
-          setDirPerm(await checkDirPermission(h));
+          setFolderName(h.name);
+          setFolderPerm(await checkFolderPerm(h));
         } else {
-          setDirName(null);
-          setDirPerm(null);
+          setFolderName(null);
+          setFolderPerm(null);
         }
+        const bs = await getBackupFolderState();
+        setLastFolderBk(bs?.lastBackupAt ?? null);
       }
+      setCanUndo(await hasSnapshot());
     } catch {
       /* 本地库读取失败不影响页面渲染 */
     } finally {
@@ -150,25 +154,99 @@ export default function Settings() {
 
   useEffect(() => { void load(); }, [load]);
 
-  /** 保存厂牌到本地（授权书抬头用） */
+  /** 保存厂牌到本地（授权书抬头 / 落款 / 印章都读它） */
   const saveFoundry = () => {
-    localStorage.setItem(FOUNDRY_KEYS.name, foundry.name.trim());
-    localStorage.setItem(FOUNDRY_KEYS.short, foundry.short.trim());
-    localStorage.setItem(FOUNDRY_KEYS.site, foundry.site.trim());
-    toast.success("厂牌信息已保存（本机）", { detail: "将用于授权书抬头与印章落款" });
+    writeFoundry({
+      name: foundry.name.trim(),
+      short: foundry.short.trim(),
+      site: foundry.site.trim(),
+      seal: foundry.seal,
+    });
+    maybeFolderBackup();
+    toast.success("厂牌信息已保存（本机）", {
+      detail: foundry.name.trim()
+        ? "将用于授权书抬头、落款与印章"
+        : "尚未填写授权方名称——授权书抬头会显示「（未设置授权方）」",
+    });
     close();
   };
 
-  /** 清除全部本地数据（字体库 + 客户库；云端不动） */
+  /** ── 授权方案：保存 = 整表写回 schemes.ts（localStorage），签发页/文书即时生效 ── */
+  const commitSchemes = (list: LicenseScheme[], what: string) => {
+    saveSchemes(list);
+    setSchemes(list);
+    maybeFolderBackup();
+    toast.success(`授权方案已${what}（本机）`, { detail: "签发页选项与授权书「授权范围」小节同步更新" });
+  };
+
+  const openEdit = (s: LicenseScheme) => {
+    setEditKey(s.key);
+    setAddOpen(false);
+    setEditForm({ label: s.label, desc: s.desc, scopeText: s.scopeText });
+  };
+
+  const saveEdit = () => {
+    if (!editKey) return;
+    const label = editForm.label.trim();
+    if (!label) { toast.warn("方案名称不能为空"); return; }
+    commitSchemes(
+      schemes.map((s) => s.key === editKey
+        ? { ...s, label, desc: editForm.desc.trim(), scopeText: editForm.scopeText.trim() }
+        : s),
+      "保存",
+    );
+    setEditKey(null);
+  };
+
+  const restoreBuiltin = (key: string) => {
+    const d = DEFAULT_SCHEMES.find((s) => s.key === key);
+    if (!d) return;
+    commitSchemes(schemes.map((s) => s.key === key ? { ...d } : s), "恢复默认");
+  };
+
+  const hideScheme = (key: string) =>
+    commitSchemes(schemes.map((s) => s.key === key ? { ...s, hidden: true } : s), "隐藏");
+
+  const unhideScheme = (key: string) =>
+    commitSchemes(schemes.map((s) => s.key === key ? { ...s, hidden: false } : s), "恢复显示");
+
+  const deleteScheme = (key: string) => {
+    commitSchemes(schemes.filter((s) => s.key !== key), "删除");
+    if (editKey === key) setEditKey(null);
+  };
+
+  const addCustom = () => {
+    const label = addForm.label.trim();
+    if (!label) { toast.warn("请先填写方案名称"); return; }
+    const s: LicenseScheme = {
+      key: genSchemeKey(), label,
+      desc: addForm.desc.trim() || "自定义方案",
+      scopeText: addForm.scopeText.trim(),
+      builtin: false,
+    };
+    commitSchemes([...schemes, s], "新增");
+    setAddOpen(false);
+    setAddForm({ label: "", desc: "", scopeText: "" });
+  };
+
+  /** 清除全部本地数据（字体库 + 客户库 + 订单关联 + 厂牌 + 方案 + 追溯；云端不动） */
   const clearLocal = async () => {
     setBusy(true);
     try {
-      const [lf, cs] = await Promise.all([listLocalFonts(), listCustomers()]);
+      const [lf, cs, notes] = await Promise.all([listLocalFonts(), listCustomers(), listOrderNotes()]);
       await Promise.all([
         ...lf.map((f) => removeLocalFont(f.id).catch(() => void 0)),
         ...cs.map((c) => removeCustomer(c.id).catch(() => void 0)),
+        clearAllTraceRecords().catch(() => void 0),
+        clearAllOrderNotes().catch(() => void 0),
       ]);
-      toast.success("已清除本地数据", { detail: `删除 ${lf.length} 个字体、${cs.length} 位客户` });
+      // 厂牌与授权方案在 localStorage，同属「本地数据」：金额、期限、客户关联、
+      // 授权方信息若残留，共用设备上等于没清干净
+      clearFoundry();
+      clearSchemes();
+      toast.success("已清除本地数据", {
+        detail: `删除 ${lf.length} 个字体、${cs.length} 位客户、${notes.length} 条订单关联（金额/期限/备注）与全部追溯历史；授权方信息与授权方案已恢复默认。云端登记不受影响`,
+      });
       await load();
     } catch (e) {
       toast.error("清除失败", { detail: (e as Error).message });
@@ -177,44 +255,16 @@ export default function Settings() {
     }
   };
 
-  /** ── 自动加密备份 ── */
-  const doBackupNow = async (code: string) => {
-    setBkBusy(true);
-    try {
-      const at = await runFontsBackup(code);
-      setLastBk(at);
-      toast.success("已加密备份到云端", { detail: "字体清单与厂牌配置（密文，服务器不可读）" });
-    } catch (e) {
-      toast.error("备份失败", { detail: (e as Error).message });
-    } finally {
-      setBkBusy(false);
-    }
-  };
-
-  const enableAuto = () => {
-    if (!isValidRecoveryCode(codeInput)) {
-      toast.warn("请输入完整恢复码（32 位）");
-      return;
-    }
-    setBackupCode(codeInput);
-    setAutoBackupEnabled(true);
-    setAutoOn(true);
-    setShowCodeInput(false);
-    setCodeInput("");
-    void doBackupNow(getBackupCode());
-  };
-
-  const disableAuto = () => {
-    setAutoBackupEnabled(false);
-    setAutoOn(false);
-    toast.info("已关闭自动备份", { detail: "云端已有密文保留，不再自动更新" });
-  };
-
   /** ── 导入导出 ── */
   const doExport = async () => {
     try {
-      const name = await exportDataFile();
-      toast.success(`已导出 ${name}`, { detail: "客户资料为明文，请妥善保管该文件" });
+      const r = await exportDataFile();
+      toast.success(`已导出 ${r.name}`, {
+        detail: (r.cloud
+          ? "含本机数据（客户 / 厂牌 / 订单关联 / 追溯历史）与云端段（登记 / 订单 / 审计）"
+          : "云端段本次未取到（离线或会话过期），只导出了本机数据")
+          + `，并带字体本体 ${r.fonts} 个——换机导入这一份即完整恢复；客户资料为明文，请妥善保管`,
+      });
     } catch (e) {
       toast.error("导出失败", { detail: (e as Error).message });
     }
@@ -223,23 +273,60 @@ export default function Settings() {
   const doImport = async (f: File) => {
     setBkBusy(true);
     try {
+      // 导入 = 整表替换 → 先把当前数据快照，点错可一键撤销
+      await snapshotLocalData();
       const r = await importDataFile(f);
-      toast.success("导入完成", { detail: `恢复 ${r.customers} 位客户与厂牌信息；${r.fonts} 条字体清单已核对（字体本体请在字体库重新添加）` });
+      setCanUndo(true);
+      maybeFolderBackup();
+      toast.success("导入完成", {
+        detail: `恢复 ${r.customers} 位客户、${r.orders} 条订单关联、${r.traces} 份追溯报告与厂牌信息；` +
+          (r.fontsRestored > 0
+            ? `字体本体已回灌 ${r.fontsRestored} 个（按哈希校验）`
+            : `${r.fonts} 条字体清单已核对（此备份不含字体本体，请在字体库重新添加）`),
+      });
       await load();
     } catch (e) {
-      toast.error("导入失败", { detail: (e as Error).message });
+      // 导入是整表替换、且分几张表各自落盘：写到一半失败会留下「元数据已替换、
+      // 字体本体还是半套」的中间态。所以失败即自动还原快照；还原本身也可能失败，
+      // 那就把「撤销上次导入」入口放出来，让用户还能手动点一次。
+      let recovered = false;
+      try {
+        if (await hasSnapshot()) { await restoreSnapshot(); recovered = true; await load(); }
+      } catch { /* 还原失败：下面的文案会如实说明 */ }
+      setCanUndo(await hasSnapshot());
+      toast.error("导入失败", {
+        detail: (e as Error).message + (recovered ? "；已自动还原到导入前的数据" : "；撤销入口已就绪，可手动还原"),
+      });
     } finally {
       setBkBusy(false);
     }
   };
 
-  /** ── 字体库文件夹 ── */
+  /** 撤销上次导入（自动快照还原） */
+  const doUndoImport = async () => {
+    setBkBusy(true);
+    try {
+      const n = await restoreSnapshot();
+      if (n === null) { toast.info("没有可撤销的导入"); return; }
+      setCanUndo(false);
+      toast.success("已撤销上次导入", { detail: `客户库回退到导入前（${n} 位客户）` });
+      await load();
+    } catch (e) {
+      toast.error("撤销失败", { detail: (e as Error).message });
+    } finally {
+      setBkBusy(false);
+    }
+  };
+
+  /** ── 本地文件夹（统一：备份目标 + 字体添加入口） ── */
   const doBindFolder = async () => {
     try {
-      const name = await pickFontFolder();
-      setDirName(name);
-      setDirPerm("granted");
-      toast.success(`已绑定字体库文件夹「${name}」`, { detail: "可扫描导入；跨会话首次使用需重新授权" });
+      const name = await pickFolder();
+      setFolderName(name);
+      setFolderPerm("granted");
+      await writeFolderBackup();   // 绑定后立即写一次全量备份
+      setLastFolderBk(Date.now());
+      toast.success(`已绑定本地文件夹「${name}」`, { detail: "字体从这里扫描入库并锁定版本；数据变更会自动备份（清单 + 字体本体）" });
     } catch (e) {
       const msg = (e as Error).message;
       if (msg && !msg.includes("abort")) toast.error("绑定失败", { detail: msg });
@@ -255,11 +342,11 @@ export default function Settings() {
         { detail: `共 ${r.total} 个字体文件，${r.skipped} 个已存在；新字体连同文件本体已导入` },
       );
       await load();
-      setDirPerm("granted");
+      setFolderPerm("granted");
     } catch (e) {
       const msg = (e as Error).message;
       if (msg.includes("重新授权")) {
-        setDirPerm("prompt");
+        setFolderPerm("prompt");
         toast.warn(msg);
       } else {
         toast.error("扫描失败", { detail: msg });
@@ -269,34 +356,42 @@ export default function Settings() {
     }
   };
 
-  const doReauthFolder = async () => {
-    const h = await getFontDirHandle();
-    if (!h) return;
-    const perm = await checkDirPermission(h, true);
-    setDirPerm(perm);
-    if (perm === "granted") toast.success("已重新授权", { detail: "本会话内可正常扫描" });
-  };
-
-  const doUnbindFolder = async () => {
-    await clearFontDirHandle();
-    setDirName(null);
-    setDirPerm(null);
-    toast.info("已解除文件夹绑定");
-  };
-
-  /** ── 账号与合规（批次 4） ── */
-  const doCloudExport = async () => {
-    setBusy(true);
+  const doBackupNowFolder = async () => {
+    setBkBusy2(true);
     try {
-      await apiAccount.export();
-      toast.success("云端数据已导出", { detail: "包含账号、字体登记、订单与审计台账（JSON）" });
+      const at = await writeFolderBackup();
+      setLastFolderBk(at);
+      toast.success("已备份到文件夹", { detail: "客户 / 厂牌 / 订单关联 / 字体清单已写入" });
     } catch (e) {
-      toast.error("导出失败", { detail: (e as Error).message });
+      const msg = (e as Error).message;
+      if (msg.includes("重新授权")) {
+        setFolderPerm("prompt");
+        toast.warn(msg);
+      } else {
+        toast.error("备份失败", { detail: msg });
+      }
     } finally {
-      setBusy(false);
+      setBkBusy2(false);
     }
   };
 
+  const doReauthFolder = async () => {
+    const h = await getFolderHandle();
+    if (!h) return;
+    const perm = await checkFolderPerm(h, true);
+    setFolderPerm(perm);
+    if (perm === "granted") toast.success("已重新授权", { detail: "可继续扫描字体与自动备份" });
+  };
+
+  const doUnbindFolder = async () => {
+    await clearFolderHandle();
+    setFolderName(null);
+    setFolderPerm(null);
+    setLastFolderBk(null);
+    toast.info("已解除本地文件夹绑定");
+  };
+
+  /** ── 账号与合规（批次 4） ── */
   const doDeleteAccount = async () => {
     setBusy(true);
     try {
@@ -320,13 +415,13 @@ export default function Settings() {
     );
   }
 
-  /* ── 抽屉内部内容（按 openItem 切换） ── */
-  const drawerBody = (() => {
-    switch (openItem) {
+  /* ── 展开体内容（按条目 key 切换；6 块都常挂载，收起时由 .acc-panel 裁切） ── */
+  const renderBody = (key: ItemKey) => {
+    switch (key) {
       case "brand":
         return (
           <>
-            <Row label="说明">作为授权方抬头，用于授权书与印章落款</Row>
+            <Row label="说明">作为授权方，写进授权书抬头、落款与印章</Row>
             <div className="drow"><small>授权方名称</small>
               <input className="q" value={foundry.name} placeholder="如：文镇字库"
                 onChange={(e) => setFoundry({ ...foundry, name: e.target.value })} aria-label="授权方名称" /></div>
@@ -336,87 +431,190 @@ export default function Settings() {
             <div className="drow"><small>官网地址</small>
               <input className="q" value={foundry.site} placeholder="https://…"
                 onChange={(e) => setFoundry({ ...foundry, site: e.target.value })} aria-label="官网地址" /></div>
-            <Row label="存储方式">当前设备本地保存</Row>
-            <div className="drawer-actions">
-              <button className="btn btn-outline btn-md" onClick={close}>取消</button>
-              <button className="btn btn-primary btn-md" onClick={saveFoundry}>保存</button>
+            <div className="drow"><small>印章形状</small>
+              <div className="choice" role="radiogroup" aria-label="印章形状">
+                {SEAL_OPTIONS.map((o) => (
+                  <button key={o.value} type="button" role="radio"
+                    aria-checked={foundry.seal === o.value}
+                    className={foundry.seal === o.value ? "on" : ""}
+                    onClick={() => setFoundry({ ...foundry, seal: o.value })}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {!foundry.name.trim() && (
+              <p className="note">未填授权方名称时，授权书抬头会显示「（未设置授权方）」——
+                不会回落成平台名。文书上出现平台名，等于用我们的名义替你做授权。</p>
+            )}
+            <Row label="存储方式">当前设备本地保存，随本机备份搬运</Row>
+            <div className="panel-actions">
+              <Button onClick={close}>取消</Button>
+              <Button variant="primary" onClick={saveFoundry}>保存</Button>
             </div>
           </>
         );
       case "schemes":
         return (
           <>
-            <Row label="说明">以下方案为 v1 内置，暂不提供自定义</Row>
-            {BUILTIN_SCHEMES.map((s) => <Row key={s.value} label={s.label}>{s.desc}</Row>)}
+            <Row label="说明">方案文案写进授权书「授权范围」小节；内置三项默认与桌面版逐字一致，改动只影响本机</Row>
+            {schemes.map((s) => {
+              const def = DEFAULT_SCHEMES.find((d) => d.key === s.key);
+              const changed = !!def &&
+                (s.label !== def.label || s.desc !== def.desc || s.scopeText !== def.scopeText);
+              const referenced = schemeRefs.has(s.key);
+              return (
+                <div className="drow" key={s.key}>
+                  {editKey === s.key ? (
+                    <div className="picker-form" style={{ borderTop: 0, background: "none", padding: 0, width: "100%" }}>
+                      <input className="line-input" value={editForm.label} placeholder="方案名称" autoFocus
+                        onChange={(e) => setEditForm({ ...editForm, label: e.target.value })} aria-label="方案名称" />
+                      <input className="line-input" value={editForm.desc} placeholder="一句话说明（签发页选择行显示）"
+                        onChange={(e) => setEditForm({ ...editForm, desc: e.target.value })} aria-label="方案说明" />
+                      <textarea className="textnote" style={{ minHeight: 88, marginTop: 12 }} rows={3}
+                        value={editForm.scopeText} placeholder="授权范围条款全文（留空则授权书不渲染该小节）"
+                        onChange={(e) => setEditForm({ ...editForm, scopeText: e.target.value })} aria-label="授权范围条款" />
+                      <div className="picker-form-actions">
+                        <Button size="sm" onClick={() => setEditKey(null)}>取消</Button>
+                        <Button variant="primary" size="sm" onClick={saveEdit}>保存</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: 7 }}>
+                        <small style={{ marginBottom: 0 }}>
+                          {s.label}
+                          {!s.builtin && <span style={{ color: "var(--muted)" }}> · 自定义</span>}
+                          {s.hidden && <span style={{ color: "var(--rust)" }}> · 已隐藏</span>}
+                          <span style={{ color: "var(--muted)" }}> · {s.desc}</span>
+                        </small>
+                        <div className="row-acts">
+                          {changed && <Button size="sm" onClick={() => restoreBuiltin(s.key)}>恢复默认</Button>}
+                          {s.hidden && <Button size="sm" onClick={() => unhideScheme(s.key)}>恢复显示</Button>}
+                          {!s.hidden && (
+                            <button className="btn btn-icon" title="隐藏方案"
+                              onClick={() => hideScheme(s.key)}>
+                              <IconBan size={15} />
+                            </button>
+                          )}
+                          {!s.builtin && !s.hidden && !referenced && (
+                            <ConfirmButton label="" confirmLabel="确认删除" title="删除方案" danger
+                              icon={<IconTrash size={15} />} onConfirm={() => deleteScheme(s.key)} />
+                          )}
+                          {!s.hidden && (
+                            <button className="btn btn-icon" title="编辑方案"
+                              onClick={() => openEdit(s)}>
+                              <IconPencil size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <b style={{ font: "400 13px/1.75 var(--sans)", color: s.hidden ? "var(--muted)" : "var(--sub)" }}>
+                        {s.scopeText || "（未设授权范围条款——授权书不渲染该小节）"}
+                        {s.hidden && "　隐藏后不再出现在签发选项；历史订单的授权书仍按此条款渲染。"}
+                      </b>
+                      {!s.builtin && referenced && !s.hidden && (
+                        <span className="note">已有订单使用此方案——只能隐藏，不能删除（删除会让旧授权书失去条款）。</span>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+
+            {addOpen ? (
+              <div className="picker-form" style={{ marginTop: 8 }}>
+                <input className="line-input" value={addForm.label} placeholder="方案名称（如：展会授权）" autoFocus
+                  onChange={(e) => setAddForm({ ...addForm, label: e.target.value })} aria-label="新方案名称" />
+                <input className="line-input" value={addForm.desc} placeholder="一句话说明（选填）"
+                  onChange={(e) => setAddForm({ ...addForm, desc: e.target.value })} aria-label="新方案说明" />
+                <textarea className="textnote" style={{ minHeight: 88, marginTop: 12 }} rows={3}
+                  value={addForm.scopeText} placeholder="授权范围条款全文（选填；留空则授权书不渲染该小节）"
+                  onChange={(e) => setAddForm({ ...addForm, scopeText: e.target.value })} aria-label="新方案条款" />
+                <div className="picker-form-actions">
+                  <Button size="sm" onClick={() => { setAddOpen(false); setAddForm({ label: "", desc: "", scopeText: "" }); }}>取消</Button>
+                  <Button variant="primary" size="sm" disabled={!addForm.label.trim()} onClick={addCustom}>创建方案</Button>
+                </div>
+              </div>
+            ) : (
+              <button className="picker-add" style={{ marginTop: 20 }} onClick={() => { setAddOpen(true); setEditKey(null); }}>
+                <IconPlus size={14} />自定义方案
+              </button>
+            )}
+            <div className="note" style={{ marginTop: 18 }}>
+              隐藏 ≠ 删除：被历史订单引用的方案只能隐藏，条款文案保留供旧授权书渲染。
+              方案只存本机，随「导出数据」搬运；云端订单不含授权方案。
+            </div>
           </>
         );
       case "data":
         return (
           <>
-            <Row label="说明">本地数据仅存储于本机；清除操作不影响云端订单与备份</Row>
-            <Row label="字体库">{fontCount} 个字体文件（IndexedDB）</Row>
-            <Row label="客户库">{customerCount} 位客户（IndexedDB）</Row>
-            <Row label="自动加密备份">
-              {autoOn ? <>已开启 · 每日至多一次</> : <span className="warn" style={{ color: "var(--rust)" }}>未开启</span>}
-            </Row>
-            {autoOn ? (
-              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                <button className="btn btn-sm" disabled={bkBusy}
-                  onClick={() => void doBackupNow(getBackupCode())}>立即备份</button>
-                <button className="btn btn-sm" onClick={disableAuto}>关闭自动备份</button>
-              </div>
-            ) : showCodeInput ? (
-              <div className="drow"><small>恢复码（保存在本机，用于备份加密；请确保已在客户页生成并妥善抄写）</small>
-                <input className="q" value={codeInput} placeholder="32 位恢复码"
-                  onChange={(e) => setCodeInput(e.target.value)} aria-label="恢复码" /></div>
-            ) : null}
-            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-              {!autoOn && !showCodeInput && (
-                <button className="btn btn-sm" onClick={() => setShowCodeInput(true)}>开启自动备份</button>
-              )}
-              {showCodeInput && (
-                <button className="btn btn-primary btn-sm" disabled={bkBusy} onClick={enableAuto}>确认开启</button>
-              )}
-            </div>
-            <Row label="上次备份">
-              {lastBk ? new Date(lastBk).toLocaleString("zh-CN") : "尚未备份"}
-            </Row>
-            <Row label="云端备份内容">字体清单与厂牌配置（密文）· 字体本体不出本机</Row>
-            <Row label="字体库文件夹">
-              {fsSupported
-                ? dirName
-                  ? dirPerm === "granted"
-                    ? <>已绑定「{dirName}」</>
-                    : <span style={{ color: "var(--rust)" }}>已绑定「{dirName}」· 本会话需重新授权</span>
-                  : "未绑定（Chrome / Edge 可绑定本地文件夹）"
-                : "需要 Chrome / Edge 浏览器支持（File System Access API）"}
-            </Row>
+            <BodyHead>本机数据 · 只在这台设备</BodyHead>
+            <KV k="字体库" v={`${fontCount} 个文件`} />
+            <KV k="客户库" v={`${customerCount} 位客户`} />
+            <KV k="订单备注" v={`${noteCount} 条`} />
+            <KV k="追溯历史" v={`${traceCount} 份报告`} />
+            <div className="note">客户姓名、订单备注与追溯报告只在本机，云端没有这一项。</div>
+
+            <BodyHead>云端登记 · 只有哈希与订单号</BodyHead>
+            <KV k="字体登记" v={cloudFonts === null ? "—" : `${cloudFonts} 条`} />
+            <KV k="订单" v={cloudOrders === null ? "—" : `${cloudOrders} 笔`} />
+            <KV k={<>操作记录
+              <InfoI>云端按设计不保存客户姓名与备注，也不保存字体文件本体 —— 所以这里永远没有「客户」这一项。
+                关键操作在服务端留痕（仅限本人查阅、不可修改），完整记录随「导出数据」带走，这里只看条数。</InfoI>
+            </>} v={`${audit.length} 条`} />
+
+            <BodyHead>备份
+              <InfoI>备份写入绑定的文件夹：typeflow-data.json（明文清单，含客户资料）+
+                typeflow-fonts/（字体本体，添加时写入）。请放在你自己可控的位置（网盘 / 移动硬盘 / Time Machine）。
+                换机时把整个文件夹带走，或用「导出数据」出一个 zip。</InfoI>
+            </BodyHead>
+            <KV k="绑定文件夹"
+              v={!fsSupported ? "浏览器不支持"
+                : folderName ? `「${folderName}」`
+                  : "未绑定"} />
+            {fsSupported && folderPerm === "prompt" && (
+              <div className="note" style={{ color: "var(--rust)" }}>本会话需要重新授权才能继续扫描与自动备份。</div>
+            )}
             {fsSupported && (
-              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                {!dirName ? (
-                  <button className="btn btn-primary btn-sm" onClick={() => void doBindFolder()}>绑定文件夹</button>
-                ) : dirPerm !== "granted" ? (
-                  <button className="btn btn-primary btn-sm" onClick={() => void doReauthFolder()}>重新授权</button>
+              <div className="btn-row">
+                {!folderName ? (
+                  <Button variant="primary" size="sm" disabled={bkBusy2} onClick={() => void doBindFolder()}>绑定文件夹</Button>
+                ) : folderPerm !== "granted" ? (
+                  <Button variant="primary" size="sm" onClick={() => void doReauthFolder()}>重新授权</Button>
                 ) : (
                   <>
-                    <button className="btn btn-sm" disabled={scanBusy} onClick={() => void doScanFolder()}>
-                      {scanBusy ? "扫描中…" : "扫描文件夹"}</button>
-                    <button className="btn btn-sm" onClick={() => void doUnbindFolder()}>解除绑定</button>
+                    <Button size="sm" disabled={scanBusy} onClick={() => void doScanFolder()}>
+                      {scanBusy ? "扫描中…" : "扫描字体"}</Button>
+                    <Button size="sm" disabled={bkBusy2} onClick={() => void doBackupNowFolder()}>
+                      {bkBusy2 ? "备份中…" : "立即备份"}</Button>
+                    <Button size="sm" onClick={() => void doUnbindFolder()}>解除绑定</Button>
                   </>
                 )}
               </div>
             )}
-            <Row label="导出 / 导入">导出为 JSON 文件（客户资料为明文，请妥善保管）；导入恢复客户库与厂牌信息</Row>
-            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-              <button className="btn btn-sm" disabled={bkBusy} onClick={() => void doExport()}>导出数据</button>
-              <button className="btn btn-sm" disabled={bkBusy} onClick={() => importInputRef.current?.click()}>导入数据</button>
-              <input ref={importInputRef} type="file" accept=".json,application/json" hidden
+            {fsSupported && folderName && lastFolderBk && folderPerm === "granted" && (
+              <div className="note">上次自动备份 {new Date(lastFolderBk).toLocaleString("zh-CN")}</div>
+            )}
+
+            <BodyHead>导出 / 导入
+              <InfoI>一个 zip 文件带走两段：本机段（客户 / 厂牌 / 字体清单 / 订单备注，可再导入恢复）
+                + 云端段（账号 / 字体登记 / 订单配方 / 审计，只读凭证）。导入兼容 zip 与旧版 JSON。</InfoI>
+            </BodyHead>
+            <div className="btn-row">
+              <Button variant="primary" size="sm" disabled={bkBusy} onClick={() => void doExport()}>导出数据</Button>
+              <Button size="sm" disabled={bkBusy} onClick={() => importInputRef.current?.click()}>导入数据</Button>
+              {canUndo && (
+                <Button size="sm" disabled={bkBusy} onClick={() => void doUndoImport()}>撤销上次导入</Button>
+              )}
+              <input ref={importInputRef} type="file" accept=".zip,.json,application/zip,application/json" hidden
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); e.target.value = ""; }} />
             </div>
-            <Row label="客户库加密备份">
-              {vaultExists ? "已启用（恢复码加密，换设备可在客户页恢复）" : "未启用 —— 客户页「Advanced · 防换设备丢失」可开启"}
-            </Row>
-            <div className="drawer-actions">
+
+            <BodyHead>危险操作</BodyHead>
+            <div className="note">清除后本机数据不可恢复；云端订单与字体登记不受影响。</div>
+            <div className="btn-row">
               <ConfirmButton label="清除本地数据" confirmLabel="确认清除"
                 danger disabled={busy} busy={busy}
                 icon={<IconTrash size={14} />} onConfirm={() => void clearLocal()} />
@@ -433,40 +631,22 @@ export default function Settings() {
             <Row label="出网项">仅字体哈希与订单元数据，可在「安全与信任」页自行验证</Row>
           </>
         );
-      case "audit":
-        return (
-          <>
-            <Row label="说明">关键操作均在服务端记录审计事件，含操作类型、时间与关联订单；仅限本人查阅，不可修改</Row>
-            {audit.length === 0 ? (
-              <Row label="暂无记录">完成签发、登记等操作后会出现。</Row>
-            ) : (
-              audit.map((e) => (
-                <Row key={e.id} label={AUDIT_LABEL[e.action] ?? e.action}>
-                  {new Date(e.at).toLocaleString("zh-CN")}
-                  {e.order_id ? <span className="mono" style={{ marginLeft: 8, fontSize: 12 }}>{e.order_id}</span> : null}
-                </Row>
-              ))
-            )}
-          </>
-        );
       case "account":
         return (
           <>
             <Row label="条款">已确认《用户协议》与《隐私政策》 · <a href="/terms" target="_blank" rel="noreferrer">查看全文</a></Row>
-            <Row label="数据可携">云端全部数据（账号 / 字体登记 / 订单 / 审计）打包为 JSON 下载</Row>
-            <div style={{ marginTop: 10 }}>
-              <button className="btn btn-sm" disabled={busy} onClick={() => void doCloudExport()}>
-                {busy ? "导出中…" : "导出云端数据"}
-              </button>
+
+            <BodyHead>数据可携</BodyHead>
+            <div className="note">全部数据可从一个文件带走，入口在「数据与备份 → 导出数据」。</div>
+
+            <BodyHead>危险操作</BodyHead>
+            <div className="note">
+              注销不可恢复：删除全部云端数据（字体登记、订单、审计与本账号）；
+              字体文件本体因从未上传而不受影响。
             </div>
-            <Row label="注销账号">
-              不可恢复：删除全部云端数据（字体登记、订单、审计与本账号），
-              字体文件本体因从未上传而不受影响
-            </Row>
             {!showDelInput ? (
-              <div style={{ marginTop: 10 }}>
-                <button className="btn btn-sm" onClick={() => setShowDelInput(true)}>
-                  注销账号…</button>
+              <div className="btn-row">
+                <Button size="sm" onClick={() => setShowDelInput(true)}>注销账号…</Button>
               </div>
             ) : (
               <>
@@ -475,11 +655,11 @@ export default function Settings() {
                   <input className="q" type="password" value={delPass} placeholder="登录密码"
                     onChange={(e) => setDelPass(e.target.value)} aria-label="确认密码" />
                 </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                  <button className="btn btn-sm" onClick={() => { setShowDelInput(false); setDelPass(""); }}>取消</button>
-                  <button className="btn btn-sm" style={{ color: "var(--rust)", borderColor: "var(--rust)" }}
+                <div className="btn-row">
+                  <Button size="sm" onClick={() => { setShowDelInput(false); setDelPass(""); }}>取消</Button>
+                  <Button variant="danger" size="sm"
                     disabled={busy || !delPass} onClick={() => void doDeleteAccount()}>
-                    永久删除我的账号</button>
+                    永久删除我的账号</Button>
                 </div>
               </>
             )}
@@ -488,36 +668,32 @@ export default function Settings() {
       default:
         return null;
     }
-  })();
-
-  const openMeta = ITEM_META.find((m) => m.key === openItem);
+  };
 
   return (
     <>
       <PageHeader title="设置" sub="配置厂牌信息、授权方案、本地数据与密钥。" />
 
-      {/* 原型 v9：线性分组行，点击行打开右侧抽屉 */}
+      {/* 线性分组行：点击条目 → 就地向下展开（右侧箭头指示展开/收起） */}
       <div className="settings">
-        {ITEM_META.map((m) => (
-          <button className="setting" key={m.key} onClick={() => setOpenItem(m.key)}>
-            <b>{m.title}</b>
-            <small>{m.desc}</small>
-          </button>
-        ))}
-      </div>
-
-      {/* 右侧滑出抽屉（220ms；backdrop 点击关闭） */}
-      <div
-        className={`drawer-back${openItem ? " open" : ""}`}
-        onClick={(e) => { if (e.target === e.currentTarget) close(); }}
-      >
-        <aside className="drawer" role="dialog" aria-label={openMeta?.title ?? "设置"}>
-          <div className="drawer-head">
-            <h2>{openMeta?.title}</h2>
-            <button className="drawer-x" onClick={close} aria-label="关闭">×</button>
-          </div>
-          <div className="drawer-body">{drawerBody}</div>
-        </aside>
+        {ITEM_META.map((m) => {
+          const open = openItem === m.key;
+          return (
+            <div className={`setting-item${open ? " open" : ""}`} key={m.key}>
+              <button className="setting" aria-expanded={open}
+                onClick={() => setOpenItem(open ? null : m.key)}>
+                <span className="setting-text">
+                  <b>{m.title}</b>
+                  <small>{m.desc}</small>
+                </span>
+                <IconChevron size={16} className="setting-chev" />
+              </button>
+              <AccordionPanel open={open}>
+                <div className="setting-body">{renderBody(m.key)}</div>
+              </AccordionPanel>
+            </div>
+          );
+        })}
       </div>
     </>
   );

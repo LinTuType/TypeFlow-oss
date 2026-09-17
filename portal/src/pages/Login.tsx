@@ -1,11 +1,12 @@
 /**
- * 登录 / 注册（v1 · Terracotta 风格）
+ * 登录 / 注册（v9 语言：纸面直排 + 规线下划线控件，无卡片底板）
  *
  *  居中纯净登录：大 logo + 中性副标题 + 表单，登录页不放大标题
  *  不堆叠安全宣传 —— 信任页单独走顶栏 nav 入口
  */
 
 import { useState } from "react";
+import { Button } from "../components/ui";
 import { useNavigate } from "react-router-dom";
 import { apiAuth, setToken, setTenant } from "../api/client";
 
@@ -33,9 +34,10 @@ export default function Login() {
         await apiAuth.register(email, password, displayName.trim(), agreed);
         setMsg({ ok: true, text: "注册成功，已自动登录" });
       }
-      const { token } = await apiAuth.login(email, password);
-      setToken(token);
-      setTenant(displayName.trim() || email);
+      const res = await apiAuth.login(email, password);
+      setToken(res.token);
+      // 显示名以服务端为准（登录时表单里没有昵称，只有注册时才有；曾经因此退化成显示邮箱）
+      setTenant(res.display_name || displayName.trim() || email);
       navigate("/", { replace: true });
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
@@ -60,69 +62,56 @@ export default function Login() {
   };
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: "64px 24px",
-      background: "var(--bg)",
-    }}>
-      <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
+    <div className="login-wrap">
+      <div className="login-box">
 
-        {/* 大 logo（无底框，印章原色直出） */}
-        <div style={{ marginBottom: 24, display: "flex", justifyContent: "center" }}>
-          <img src="/logo.svg" style={{ width: 80, height: 80 }} alt="文镇" />
+        <div className="login-head">
+          <img className="login-logo" src="/logo.svg" alt="文镇" />
+          <h1>文镇 · TypeFlow</h1>
+          <p className="login-sub">登录到工作台</p>
         </div>
-
-        <h1 className="serif" style={{
-          fontSize: 22, color: "var(--ink-900)",
-          margin: "0 0 6px", fontWeight: 500, letterSpacing: "0.02em",
-        }}>文镇 · TypeFlow</h1>
-        <p style={{
-          fontSize: 13, color: "var(--ink-700)", opacity: 0.6,
-          margin: "0 auto 36px",
-        }}>登录到工作台</p>
 
         {/* 忘记密码：内联小流程，替换整个表单区（不弹窗、不跳页） */}
         {forgot ? (
-          <form onSubmit={submitForgot} style={{ textAlign: "left" }}>
-            <div className="field">
-              <label>注 册 邮 箱</label>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+          <form onSubmit={submitForgot}>
+            <label className="login-field">
+              <span className="field-label">注册邮箱</span>
+              <input className="line-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@studio.com" required />
-            </div>
+            </label>
             {forgotMsg && (
               <div className={`notice ${forgotMsg.ok ? "ok" : "err"}`} style={{ marginTop: 12, marginBottom: 16 }}>
                 {forgotMsg.text}
               </div>
             )}
-            <button className="btn btn-primary" type="submit" disabled={forgotBusy} style={{ width: "100%" }}>
-              {forgotBusy ? "发 送 中 …" : "发送重置邮件"}
-            </button>
-            <div style={{ textAlign: "center", marginTop: 16 }}>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setForgot(false); setForgotMsg(null); setMsg(null); }}>
+            <Button variant="primary" type="submit" disabled={forgotBusy} style={{ width: "100%" }}>
+              {forgotBusy ? "发送中…" : "发送重置邮件"}
+            </Button>
+            <div className="login-alt">
+              <Button variant="ghost" size="sm" type="button" onClick={() => { setForgot(false); setForgotMsg(null); setMsg(null); }}>
                 返回登录
-              </button>
+              </Button>
             </div>
           </form>
         ) : (
-        <form onSubmit={submit} style={{ textAlign: "left" }}>
+        <form onSubmit={submit}>
           {mode === "register" && (
-            <div className="field">
-              <label>显 示 名 称</label>
-              <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
+            <label className="login-field">
+              <span className="field-label">显示名称</span>
+              <input className="line-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="例如：我的字库工作室" />
-            </div>
+            </label>
           )}
-          <div className="field">
-            <label>邮 箱</label>
-            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+          <label className="login-field">
+            <span className="field-label">邮箱</span>
+            <input className="line-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
               placeholder="you@studio.com" required />
-          </div>
-          <div className="field">
-            <label>密 码</label>
-            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === "register" ? "至少 8 位" : "密 码"} minLength={8} required />
-          </div>
+          </label>
+          <label className="login-field">
+            <span className="field-label">密码</span>
+            <input className="line-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder={mode === "register" ? "至少 8 位" : "输入密码"} minLength={8} required />
+          </label>
 
           {msg && (
             <div className={`notice ${msg.ok ? "ok" : "err"}`} style={{ marginTop: 12, marginBottom: 16 }}>
@@ -130,23 +119,17 @@ export default function Login() {
             </div>
           )}
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "8px 0 24px" }}>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
+          <div className="login-row">
+            <Button variant="ghost" size="sm" type="button" onClick={() => {
               setMode(mode === "login" ? "register" : "login");
               setMsg(null);
               setAgreed(false);
             }}>
               {mode === "login" ? "没有账号？注册" : "已有账号？登录"}
-            </button>
+            </Button>
             {mode === "login" && (
-              <button
-                type="button"
-                onClick={() => { setForgot(true); setMsg(null); }}
-                style={{
-                  border: 0, background: "none", padding: 0, cursor: "pointer",
-                  fontSize: 12.5, color: "var(--ink-300)", font: "inherit",
-                }}
-              >
+              <button type="button" className="login-forgot"
+                onClick={() => { setForgot(true); setMsg(null); }}>
                 忘记密码？
               </button>
             )}
@@ -154,12 +137,7 @@ export default function Login() {
 
           {/* 合规：注册必须勾选（服务端会核对，没勾直接 400） */}
           {mode === "register" && (
-            <label
-              style={{
-                display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer",
-                fontSize: 12.5, color: "var(--ink-2)", margin: "4px 0 16px", lineHeight: 1.6,
-              }}
-            >
+            <label className="login-agree">
               <input
                 type="checkbox"
                 checked={agreed}
@@ -171,14 +149,15 @@ export default function Login() {
                 我已阅读并同意
                 <a href="/terms" target="_blank" rel="noreferrer">《用户协议》</a>与
                 <a href="/privacy" target="_blank" rel="noreferrer">《隐私政策》</a>
-                <span style={{ color: "var(--ink-300)" }}>（字体文件不上传，云端只存哈希）</span>
+                <span style={{ color: "var(--muted)" }}>（字体文件不上传，云端只存哈希）</span>
               </span>
             </label>
           )}
 
-          <button className="btn btn-primary" type="submit" disabled={busy || (mode === "register" && !agreed)}>
-            {busy ? "处 理 中 …" : mode === "login" ? "登 录" : "注册并登录"}
-          </button>
+          <Button variant="primary" type="submit" disabled={busy || (mode === "register" && !agreed)}
+            style={{ width: "100%" }}>
+            {busy ? "处理中…" : mode === "login" ? "登录" : "注册并登录"}
+          </Button>
         </form>
         )}
       </div>

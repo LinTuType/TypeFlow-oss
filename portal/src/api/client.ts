@@ -64,11 +64,16 @@ export interface OrderInfo {
   order_id: string; status: string; font_id: string;
   /** 字体显示名（云端登记时的 display_name；未登记时为 null） */
   font_name?: string | null; created_at: number;
-  client_ref?: string; license_type?: string; amount?: string; note?: string;
+  /** 最后状态变更时间；issued 状态下即完成时间（订单页「重新生成交付包」用它回显原签发时间） */
+  updated_at?: number;
+  /** 完成回执里的水印字体哈希；未签发为 null（重算交付包时用它自证一致性） */
+  watermarked_sha256?: string | null;
+  /** 客户 ID（cu_ 开头不透明串；姓名只在用户本机客户库，云端零姓名） */
+  client_id?: string;
 }
 export interface FontInfo {
-  font_id: string; display_name: string; original_filename: string;
-  original_font_sha256: string; glyph_count: number; format: string;
+  font_id: string; display_name: string;
+  original_font_sha256: string;
 }
 
 // ── 业务接口 ──
@@ -76,7 +81,7 @@ export const apiAuth = {
   register: (email: string, password: string, display_name: string, accept_terms: boolean) =>
     api<{ success: boolean; tenant_id: string }>("POST", "/api/register", { email, password, display_name, accept_terms }),
   login: (email: string, password: string) =>
-    api<{ success: boolean; token: string; tenant_id: string; expires_at: number }>("POST", "/api/login", { email, password }),
+    api<{ success: boolean; token: string; tenant_id: string; display_name?: string; expires_at: number }>("POST", "/api/login", { email, password }),
   /** 吊销服务端会话（不只是清本地 token） */
   logout: () => api<{ success: boolean }>("POST", "/api/logout"),
   /**
@@ -101,36 +106,32 @@ export const apiAccount = {
   remove: (password: string) =>
     api<{ success: boolean; deleted: boolean }>("POST", "/api/account/delete", { password }),
   /**
-   * 导出云端全部数据（JSON 下载）。
-   * 用原生 fetch 而不是 api()：响应是文件不是 JSON。
+   * 取云端全部数据（返回 JSON 对象，不直接下载）。
+   * 用途：并入「数据与备份 → 导出数据」——一个文件同时带走本机段与云端段。
+   * 注意云端按产品定稿**不存客户姓名与备注**，所以这里只有账号 / 字体登记 / 订单 / 审计；
+   * 空是常态，不是故障。
    */
-  export: async () => {
+  exportData: async (): Promise<unknown> => {
     const res = await fetch("/api/account/export", {
       headers: { Authorization: `Bearer ${getToken() ?? ""}` },
     });
     if (!res.ok) {
-      let msg = `导出失败 (${res.status})`;
+      let msg = `读取云端数据失败 (${res.status})`;
       try { msg = ((await res.json()) as { message?: string }).message ?? msg; } catch { /* 忽略 */ }
       throw new Error(msg);
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `typeflow-export-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    return await res.json();
   },
 };
 
 export const apiFonts = {
   list: () => api<{ fonts: FontInfo[] }>("GET", "/api/fonts"),
-  register: (d: { display_name: string; original_filename: string; original_font_sha256: string; glyph_count: number }) =>
+  register: (d: { display_name: string; original_font_sha256: string }) =>
     api<{ success: boolean; font_id: string }>("POST", "/api/fonts/register", d),
 };
 
 export const apiOrders = {
-  create: (d: { font_id: string; client_ref?: string; license_type?: string; bits_suffix?: string; amount?: string; note?: string }) =>
+  create: (d: { font_id: string; client_id?: string; bits_suffix?: string }) =>
     api<{ success: boolean; order_id: string; status: string }>("POST", "/api/orders", d),
   prepare: (order_id: string) =>
     api<{ success: boolean; order_id: string; status: string; font_sha256?: string }>("POST", "/api/orders/prepare", { order_id }),
@@ -162,9 +163,9 @@ export const apiTrace = {
 export const apiDashboard = {
   stats: async () => {
     const [orders, fonts] = await Promise.all([apiOrders.list(), apiFonts.list()]);
-    // 客户数 = 订单里出现过的非空 client_ref 去重（云端无客户库，口径同客户页）
+    // 客户数 = 订单里出现过的非空 client_id 去重（云端无客户库，口径同客户页）
     const clients = new Set(
-      orders.orders.map((o) => (o.client_ref ?? "").trim()).filter(Boolean),
+      orders.orders.map((o) => (o.client_id ?? "").trim()).filter(Boolean),
     );
     return {
       fonts_total: fonts.fonts.length,
@@ -175,18 +176,4 @@ export const apiDashboard = {
       orders_draft: orders.orders.filter((o) => o.status === "draft").length,
     };
   },
-};
-
-// ── 加密 vault（客户备份的 E2E 密文载体；服务端不解析内容） ──
-export interface VaultState { exists: boolean; content?: string; updated_at?: number }
-export interface VaultMeta { success: boolean; key: string; updated_at: number; deleted?: boolean }
-
-export const apiVault = {
-  /** 取密文（不存在时 exists=false） */
-  get: (key: string) => api<VaultState>("GET", `/api/vault/${key}`),
-  /** 覆盖存密文 */
-  put: (key: string, content: string) =>
-    api<VaultMeta>("PUT", `/api/vault/${key}`, { content }),
-  /** 删除云端密文（清空备份） */
-  del: (key: string) => api<VaultMeta>("DELETE", `/api/vault/${key}`),
 };

@@ -39,9 +39,11 @@ const BOTTOM_LINKS: NavItem[] = [
 interface SidebarProps {
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  /** 窄屏抽屉是否展开（桌面恒为展开态，由 CSS 控制） */
+  open?: boolean;
 }
 
-export default function Sidebar({ theme, onToggleTheme }: SidebarProps) {
+export default function Sidebar({ theme, onToggleTheme, open }: SidebarProps) {
   const navigate = useNavigate();
   const who = getTenant();
 
@@ -61,10 +63,10 @@ export default function Sidebar({ theme, onToggleTheme }: SidebarProps) {
     `sidebar-item${isActive ? " active" : ""}`;
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${open ? " open" : ""}`}>
       {/* 品牌 */}
       <button className="sidebar-brand" onClick={() => navigate("/")}>
-        <span className="sidebar-mark">文</span>
+        <img className="sidebar-logo" src="/logo.svg" alt="文镇" />
         <span>
           <div className="sidebar-brand-text">文镇 TypeFlow</div>
           <div className="sidebar-brand-sub">字体授权工作台</div>

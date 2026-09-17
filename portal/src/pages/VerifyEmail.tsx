@@ -42,7 +42,7 @@ export default function VerifyEmail() {
         {!token ? (
           <div className="notice err">链接不完整（缺少令牌）。请从邮件里的按钮进入。</div>
         ) : state === "working" ? (
-          <p style={{ fontSize: 13.5, color: "var(--ink-2)" }}>验证中 …</p>
+          <p style={{ fontSize: 13.5, color: "var(--sub)" }}>验证中 …</p>
         ) : state === "ok" ? (
           <div className="notice ok" style={{ marginBottom: 20 }}>{message}</div>
         ) : (

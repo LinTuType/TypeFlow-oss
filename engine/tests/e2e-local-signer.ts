@@ -63,16 +63,28 @@ const RECIPE = {
   const nameOk = namePreview?.includes(JSON.stringify(RECIPE.order_id)) ?? false;
   const webOk = !networkLog.some((u) => !u.startsWith("data:") && !u.startsWith("file:"));
 
+  // 样式化上传带（门户语言：虚线卡 + 隐藏 input）必须仍可点开，且选中后进入 filled 态
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser", { timeout: 4000 }).catch(() => null),
+    page.click(".drop"),
+  ]);
+  const dropOk = !!chooser;
+  if (chooser) await chooser.setFiles(FONT);
+  await page.waitForTimeout(300);
+  const dropFilledOk = (await page.locator(".drop.filled").count()) > 0
+    && ((await page.textContent("#fontInfo")) ?? "").includes("xingyun-Regular.ttf");
+
   console.log("── 阶段 3 E2E ──");
   console.log("  Name 256 含 order_id:", nameOk ? "✅" : "❌");
   console.log("  Name 256:", (namePreview ?? "").slice(0, 90));
   console.log("  状态:", statusText);
   console.log("  字体信息:", fontInfo);
   console.log("  网络外发请求:", webOk ? "0 次 ✅" : networkLog.length + " 次 ❌");
+  console.log("  上传带可点开 / 选中后 filled 态:", dropOk && dropFilledOk ? "✅" : "❌");
   if (!webOk) console.log("  外发记录:", networkLog.slice(0, 5));
   console.log("  页面 JS 错误:", pageErrors.length === 0 ? "无 ✅" : "❌ " + pageErrors[0]);
 
   await browser.close();
-  const ok = nameOk && webOk && pageErrors.length === 0;
+  const ok = nameOk && webOk && dropOk && dropFilledOk && pageErrors.length === 0;
   process.exit(ok ? 0 : 1);
 })();

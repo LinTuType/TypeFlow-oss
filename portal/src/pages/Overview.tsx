@@ -14,6 +14,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiDashboard, apiOrders, type OrderInfo } from "../api/client";
 import { getTenant } from "../api/client";
+import { listCustomers } from "../lib/localCustomers";
+import { listOrderNotes } from "../lib/localOrders";
+import { schemeLabel } from "../lib/schemes";
 import { toast } from "../lib/toast";
 import { PageHeader, Spinner } from "../components/ui";
 import { IconSpark, IconScanSearch, IconLayers } from "../components/Icon";
@@ -33,12 +36,7 @@ const STATUS_PILL: Record<string, string> = {
   issued: "issued",
   canceled: "neutral",
 };
-/** 授权方案文案（与 Issue 页 LICENSE_OPTIONS 一致） */
-const LICENSE_LABEL: Record<string, string> = {
-  enterprise: "企业商用",
-  personal_commercial: "个人商用",
-  personal: "个人版",
-};
+/** 授权方案文案 —— 统一读 lib/schemes.ts；订单的方案 key 在本机关联（2026-09-17 起云端不含） */
 
 /** 等处理（草稿/准备/等回执）的订单 = 待办 */
 function isPending(o: OrderInfo) {
@@ -55,14 +53,18 @@ export default function Overview() {
     orders_draft: number;
   } | null>(null);
   const [orders, setOrders] = useState<OrderInfo[]>([]);
+  const [clientNameById, setClientNameById] = useState<Map<string, string>>(new Map());
+  const [licenseTypeByOrderId, setLicenseTypeByOrderId] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const who = getTenant() ?? "灵兔字形";
 
   const load = async () => {
     try {
-      const [s, o] = await Promise.all([apiDashboard.stats(), apiOrders.list()]);
+      const [s, o, cs, notes] = await Promise.all([apiDashboard.stats(), apiOrders.list(), listCustomers(), listOrderNotes()]);
       setStats(s);
       setOrders(o.orders ?? []);
+      setClientNameById(new Map(cs.map((c) => [c.id, c.name])));
+      setLicenseTypeByOrderId(new Map(notes.filter((n) => n.licenseType).map((n) => [n.orderId, n.licenseType as string])));
     } catch (e) {
       toast.error("统计加载失败", { detail: (e as Error).message });
     } finally {
@@ -121,7 +123,6 @@ export default function Overview() {
           <section>
             <div className="kicker">RECENT</div>
             <h2 className="section-title">最近订单</h2>
-            <div className="note">按创建时间倒序 · 最近 5 笔</div>
             {recent.length === 0 ? (
               <div className="empty">
                 <div className="empty-title">还没有订单</div>
@@ -133,9 +134,9 @@ export default function Overview() {
                   <Link key={o.order_id} to="/orders" className="recent-row">
                     <span>
                       <span className="order-id">{o.order_id}</span>
-                      <span className="order-title">{o.font_id} · {o.client_ref || "未填客户"}</span>
+                      <span className="order-title">{o.font_name || o.font_id} · {o.client_id ? clientNameById.get(o.client_id) ?? "未识别客户" : "未关联客户"}</span>
                     </span>
-                    <span className="meta">{LICENSE_LABEL[o.license_type ?? ""] ?? o.license_type ?? "—"}</span>
+                    <span className="meta">{schemeLabel(licenseTypeByOrderId.get(o.order_id) ?? "")}</span>
                     <span className={`pill pill-${STATUS_PILL[o.status] ?? "neutral"}`}>
                       {STATUS_LABEL[o.status] ?? o.status}
                     </span>
@@ -160,7 +161,7 @@ export default function Overview() {
               </Link>
               <Link to="/fonts" className="continue-row">
                 <span className="ci"><IconLayers size={15} /></span>
-                <span><b>查看字体标本</b><small>检查版本、样张与签发历史</small></span>
+                <span><b>查看字体库</b><small>检查版本、样张与签发历史</small></span>
               </Link>
             </div>
           </aside>

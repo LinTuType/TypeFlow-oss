@@ -15,13 +15,21 @@
 import { apiFonts, apiOrders } from "../api/client";
 import { getLocalFontData, type LocalFont } from "./localFonts";
 import { localEmbed, type SignResult } from "./issuer";
-import { maybeAutoBackup } from "./backup";
+import { maybeFolderBackup } from "./backupFolder";
+import { saveOrderNote } from "./localOrders";
 
 export interface IssueOptions {
+  /** 客户名（授权书抬头显示；仅本机用途，不上云） */
   clientRef?: string;
+  /** 客户 ID（cu_ 开头不透明串；与本地客户库主键对应，云端只收这个） */
+  clientId?: string;
   licenseType?: string;
+  /** 授权期限起止（ms）；都缺省 = 永久。文书约定只存本机，不上云 */
+  licenseStart?: number;
+  licenseEnd?: number;
   /** 授权费用（展示用字符串，云端仅存储回显） */
   amount?: string;
+  /** 备注（仅写本机 orders store，不上云——云端零姓名，备注最可能含人名与商业细节） */
   note?: string;
 }
 
@@ -29,8 +37,12 @@ export interface IssueOutcome {
   orderId: string;
   fontId: string;      // 云端 font_id（font_<sha16>）
   fontName: string;
-  clientRef: string;
+  clientRef: string;   // 客户名（授权书抬头，仅本机）
+  clientId: string;    // 客户 ID（空串 = 未关联客户库）
   licenseType: string;
+  licenseStart?: number;
+  licenseEnd?: number;
+  amount?: string;     // 授权费用（写进授权书；只存本机）
   sign: SignResult;
   issuedAt: string;
 }
@@ -43,30 +55,50 @@ export type IssuePhase =
   | "embed"       // 本地嵌入水印
   | "complete";   // 完成回执
 
-/** 对本地库中的一个字体执行一次完整签发 */
-export async function issueOne(
+/**
+ * 阶段顺序 + 展示文案。
+ * label 要短：过程槽在授权书右上角，宽度只容得下一行约 37 字符（11px mono）。
+ */
+export const PHASE_LABEL: Array<{ phase: IssuePhase; label: string }> = [
+  { phase: "register", label: "登记哈希元数据" },
+  { phase: "order", label: "创建订单" },
+  { phase: "recipe", label: "取得云端签发配方" },
+  { phase: "embed", label: "本地嵌入水印" },
+  { phase: "complete", label: "提交完成回执" },
+];
+
+/** 实际流程（对外入口是文件末尾的 issueOne —— 它在失败时补上已创建的订单号） */
+async function runIssueFlow(
   font: Omit<LocalFont, "data">,
   opts: IssueOptions = {},
   onPhase?: (phase: IssuePhase) => void,
+  onOrderCreated?: (orderId: string) => void,
 ): Promise<IssueOutcome> {
   // 1. 登记哈希元数据（同哈希重复登记幂等）
   onPhase?.("register");
   const reg = await apiFonts.register({
     display_name: font.name,
-    original_filename: font.filename,
     original_font_sha256: font.sha256,
-    glyph_count: font.glyphCount,
   });
 
-  // 2. 创建订单（必须用云端返回的 font_id）
+  // 2. 创建订单（必须用云端返回的 font_id；云端只收 client_id，不收姓名与备注）
   onPhase?.("order");
+  // 授权方案 / 期限 / 费用全部不出网——云端订单只要订单号 + 客户不透明 ID + 哈希；
+  // 这些字段随订单号存本机 orders store（saveOrderNote），文书渲染也只读本机
   const order = await apiOrders.create({
     font_id: reg.font_id,
-    client_ref: opts.clientRef || undefined,
-    license_type: opts.licenseType || undefined,
-    amount: opts.amount || undefined,
-    note: opts.note || undefined,
+    client_id: opts.clientId || undefined,
   });
+  onOrderCreated?.(order.order_id);   // 让外层能在中途失败时把订单号报给用户
+
+  if (opts.note || opts.clientId || opts.amount || opts.licenseType) {
+    await saveOrderNote({
+      orderId: order.order_id, clientId: opts.clientId || undefined,
+      note: opts.note || undefined, amount: opts.amount,
+      licenseType: opts.licenseType || undefined,
+      licenseStart: opts.licenseStart, licenseEnd: opts.licenseEnd,
+    });
+  }
 
   // 3. 云端签发配方
   onPhase?.("recipe");
@@ -83,16 +115,43 @@ export async function issueOne(
   onPhase?.("complete");
   await apiOrders.complete(order.order_id, sign.watermarkedSha256);
 
-  // 数据变更点：触发自动加密备份（节流在 backup 内部，失败静默）
-  maybeAutoBackup();
+  // 数据变更点：触发文件夹自动备份（P2 主路径，内部节流、失败静默）
+  maybeFolderBackup();
 
   return {
     orderId: order.order_id,
     fontId: reg.font_id,
     fontName: font.name,
     clientRef: opts.clientRef ?? "",
+    clientId: opts.clientId ?? "",
     licenseType: opts.licenseType ?? "enterprise",
+    licenseStart: opts.licenseStart,
+    licenseEnd: opts.licenseEnd,
+    amount: opts.amount,
     sign,
     issuedAt: new Date().toLocaleString("zh-CN"),
   };
+}
+
+/**
+ * 对本地库中的一个字体执行一次完整签发（字体库页与订单页共用入口）。
+ *
+ * 失败时把**已经创建的订单号**带进错误信息：订单在云端确实存在了，用户需要知道
+ * 去订单页作废它 —— 否则它会一直停在「等待回执」，而直接重试只会再建一张新单。
+ * 幂等键要等 worker 侧支持，先把「发生了什么、该去哪儿」讲清楚。
+ */
+export async function issueOne(
+  font: Omit<LocalFont, "data">,
+  opts: IssueOptions = {},
+  onPhase?: (phase: IssuePhase) => void,
+): Promise<IssueOutcome> {
+  let createdOrderId: string | undefined;
+  try {
+    return await runIssueFlow(font, opts, onPhase, (id) => { createdOrderId = id; });
+  } catch (e) {
+    const msg = (e as Error)?.message ?? String(e);
+    throw new Error(createdOrderId
+      ? `${msg}｜订单 ${createdOrderId} 已创建但未完成签发，可在订单页作废后重新发起`
+      : msg);
+  }
 }

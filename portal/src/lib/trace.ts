@@ -56,11 +56,19 @@ function hexToBytes(hex: string): Uint8Array {
  *   2. 逐个取配方（order_root），本地 traceWatermark 比对
  *   3. 置信度排序；>0.85 视为命中
  */
+/**
+ * 追溯阶段 —— 供文书右上角的过程槽逐行显示。
+ * 四步都对应真实的计算/请求，不是装饰性文案。
+ */
+export type TracePhase = "selfclaim" | "hash" | "candidates" | "compare";
+
 export async function fullTrace(
   originalBytes: Uint8Array,
   suspiciousBytes: Uint8Array,
+  onPhase?: (phase: TracePhase) => void,
 ): Promise<FullTraceOutcome> {
   // 0. 预检：可疑字体自带 Name256 里的 order_id（旁证，不单独作结论）
+  onPhase?.("selfclaim");
   let selfClaimOrder: string | null = null;
   try {
     const name = readNameId256(suspiciousBytes);
@@ -71,7 +79,9 @@ export async function fullTrace(
   } catch { /* 忽略 */ }
 
   // 1. 云端候选：按【原版】字体哈希查（订单登记的原版哈希）
+  onPhase?.("hash");
   const sha256hex = await sha256Hex(originalBytes);
+  onPhase?.("candidates");
   const candRes = await apiTrace.candidates(sha256hex);
   const ordered = candRes.candidates ?? [];
   if (ordered.length === 0) {
@@ -79,6 +89,7 @@ export async function fullTrace(
   }
 
   // 2. 逐个订单拉配方 + 本地比对
+  onPhase?.("compare");
   const results: TraceCandidateResult[] = [];
   for (const c of ordered) {
     let recipe: { order_root_hex?: string; order_id?: string } | null = null;

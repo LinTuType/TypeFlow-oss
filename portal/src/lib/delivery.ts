@@ -9,13 +9,21 @@
  */
 
 import { buildZip, type ZipEntry } from "./zip";
-import { buildLicenseHtml } from "./issuer";
+import { buildLicenseHtml, licenseTypeLabel, licenseTermText, type LicenseData } from "./license";
+import { licensorTitle, signatureLine, type Foundry } from "./foundry";
 
 export interface DeliveryMeta {
   orderId: string;
   fontName: string;
   clientRef: string;
   licenseType: string;
+  /** 授权期限起止（ms）；都缺省 = 永久 */
+  licenseStart?: number;
+  licenseEnd?: number;
+  /** 授权方（本机厂牌；写进授权书抬头 / 落款 / 印章） */
+  licensor: Foundry;
+  /** 授权费用（选填） */
+  amount?: string;
   issuedAt: string;
   fontSha256: string;
   watermarkedSha256: string;
@@ -23,11 +31,22 @@ export interface DeliveryMeta {
   watermarkedFont: Uint8Array;
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  enterprise: "企业商用版",
-  personal_commercial: "个人商用版",
-  personal: "个人版",
-};
+/** 组装授权书数据（交付包里的 HTML 与屏幕预览吃同一份） */
+export function licenseDataOf(meta: DeliveryMeta): LicenseData {
+  return {
+    orderId: meta.orderId,
+    fontName: meta.fontName,
+    licensor: meta.licensor,
+    licensee: meta.clientRef,
+    licenseType: meta.licenseType,
+    licenseStart: meta.licenseStart,
+    licenseEnd: meta.licenseEnd,
+    amount: meta.amount,
+    issuedAt: meta.issuedAt,
+    fontSha256: meta.fontSha256,
+    watermarkedSha256: meta.watermarkedSha256,
+  };
+}
 
 /** 使用说明（纯文本，客户/客户的设计师直接能读） */
 export function usageText(meta: DeliveryMeta): string {
@@ -36,9 +55,11 @@ export function usageText(meta: DeliveryMeta): string {
 
 订单号：${meta.orderId}
 字体名：${meta.fontName}
+授权方：${licensorTitle(meta.licensor)}
 被授权方：${meta.clientRef || "（未署名）"}
-授权版本：${TYPE_LABEL[meta.licenseType] ?? meta.licenseType}
-签发时间：${meta.issuedAt}
+授权版本：${licenseTypeLabel(meta.licenseType)}
+授权期限：${licenseTermText(meta)}
+${meta.amount ? `授权费用：¥ ${meta.amount}\n` : ""}签发时间：${meta.issuedAt}
 
 包含文件
 ----------------------------------------
@@ -76,9 +97,11 @@ export function fingerprintText(meta: DeliveryMeta): string {
 ========================================
 订单号            ${meta.orderId}
 字体名            ${meta.fontName}
+授权方            ${signatureLine(meta.licensor)}
 被授权方          ${meta.clientRef || "（未署名）"}
-授权版本          ${TYPE_LABEL[meta.licenseType] ?? meta.licenseType}
-签发时间          ${meta.issuedAt}
+授权版本          ${licenseTypeLabel(meta.licenseType)}
+授权期限          ${licenseTermText(meta)}
+${meta.amount ? `授权费用          ¥ ${meta.amount}\n` : ""}签发时间          ${meta.issuedAt}
 修改字形数        ${meta.nModified}
 
 原版字体 SHA-256
@@ -97,15 +120,7 @@ export function fingerprintText(meta: DeliveryMeta): string {
  * 文件名带订单号，避免多个订单的包混在一起时分不清。
  */
 export function buildDeliveryZip(meta: DeliveryMeta): Uint8Array {
-  const licenseHtml = buildLicenseHtml({
-    orderId: meta.orderId,
-    fontName: meta.fontName,
-    clientRef: meta.clientRef,
-    licenseType: meta.licenseType,
-    fontSha256: meta.fontSha256,
-    watermarkedSha256: meta.watermarkedSha256,
-    issuedAt: meta.issuedAt,
-  });
+  const licenseHtml = buildLicenseHtml(licenseDataOf(meta));
   const enc = new TextEncoder();
   const entries: ZipEntry[] = [
     { name: `${meta.orderId}_watermarked.ttf`, data: meta.watermarkedFont },

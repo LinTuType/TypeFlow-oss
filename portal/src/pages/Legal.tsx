@@ -16,7 +16,7 @@ const STYLES = `
 .legal .meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-300); margin-bottom: 28px; }
 .legal h2 { font-family: var(--serif); font-size: 18px; font-weight: 600; margin: 34px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
 .legal h3 { font-size: 14px; font-weight: 600; margin: 20px 0 6px; }
-.legal p, .legal li { font-size: 13.5px; line-height: 1.9; color: var(--ink-2); }
+.legal p, .legal li { font-size: 13.5px; line-height: 1.9; color: var(--sub); }
 .legal ul, .legal ol { padding-left: 22px; margin: 8px 0; }
 .legal li { margin: 5px 0; }
 .legal .hl { background: #F5F3EE; border-left: 2px solid var(--gold); padding: 10px 14px; margin: 12px 0; }
@@ -33,7 +33,7 @@ function Shell({ kind, children }: { kind: "terms" | "privacy"; children: React.
       <a className="back" href="/login">← 返回</a>
       <div className="kicker">文镇 TypeFlow · Web</div>
       <h1>{kind === "terms" ? "用户协议" : "隐私政策"}</h1>
-      <div className="meta">版本 2026-09-16-v1 · 生效日期 2026-09-16 · 运营方：灵兔字形 Lingtu Type</div>
+      <div className="meta">版本 2026-09-16-v2 · 生效日期 2026-09-16 · 运营方：灵兔字形 Lingtu Type</div>
       {children}
     </div>
   );
@@ -44,7 +44,7 @@ function Shell({ kind, children }: { kind: "terms" | "privacy"; children: React.
 export function Terms() {
   return (
     <Shell kind="terms">
-      <p className="lead" style={{ fontSize: 15, color: "var(--ink-2)" }}>
+      <p className="lead" style={{ fontSize: 15, color: "var(--sub)" }}>
         使用文镇网页版（下称"本服务"）之前，请先读一遍这份协议。它不长，也没有藏起来
         的条款——我们尽量用能读懂的话把边界写清楚。
       </p>
@@ -71,7 +71,8 @@ export function Terms() {
           <b>任何人都无法从存储值还原出你的密码</b>（包括我们）。</li>
         <li>会话令牌保存在你浏览器的 sessionStorage 里，关闭标签页即失效，有效期最长 14 天，
           你可以随时在设置页登出使其立即作废。</li>
-        <li>目前尚未提供自助找回密码（需要邮件通道，在路线图上）。忘记密码请联系我们手工重置。</li>
+        <li>忘记密码可以<b>自助重置</b>：在登录页点「忘记密码」，我们会向你注册时填的邮箱发一封重置邮件，
+          链接 30 分钟内有效。收不到时先看垃圾邮件，或通过官网联系我们。</li>
       </ul>
 
       <h2>三、数据归属</h2>
@@ -129,7 +130,7 @@ export function Terms() {
 export function Privacy() {
   return (
     <Shell kind="privacy">
-      <p className="lead" style={{ fontSize: 15, color: "var(--ink-2)" }}>
+      <p className="lead" style={{ fontSize: 15, color: "var(--sub)" }}>
         我们收集的数据少到可以直接列出来。下面每一项都说明它是什么、为什么需要、放在哪。
       </p>
 
@@ -137,16 +138,16 @@ export function Privacy() {
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <tbody>
           {[
-            ["注册邮箱", "创建账号与登录", "必填"],
-            ["工作室名称", "授权书抬头与界面显示", "必填"],
-            ["客户与订单信息", "授权管理与追溯", "你主动录入"],
+            ["注册邮箱", "创建账号与登录、发验证与重置邮件", "必填"],
+            ["工作室名称", "界面显示（侧栏与问候语）", "必填"],
+            ["订单与签发记录", "授权管理与追溯；不含客户姓名", "你签发时"],
             ["字体文件 SHA-256 哈希", "字体登记与泄露比对", "登记时自动计算"],
             ["操作审计日志", "安全与纠纷排查", "自动记录，最近 200 条"],
-            ["加密备份（可选）", "换设备时恢复客户资料", "你开启后自动"],
+            ["邮箱验证 / 密码重置记录", "账号安全", "你发起时，到期自动失效"],
           ].map(([a, b, c]) => (
             <tr key={a}>
               <td style={{ padding: "7px 8px", borderBottom: "1px solid var(--rule)", width: 150 }}>{a}</td>
-              <td style={{ padding: "7px 8px", borderBottom: "1px solid var(--rule)", color: "var(--ink-2)" }}>{b}</td>
+              <td style={{ padding: "7px 8px", borderBottom: "1px solid var(--rule)", color: "var(--sub)" }}>{b}</td>
               <td style={{ padding: "7px 8px", borderBottom: "1px solid var(--rule)", color: "var(--ink-300)", width: 90 }}>{c}</td>
             </tr>
           ))}
@@ -167,7 +168,8 @@ export function Privacy() {
           <b>我们无法还原你的密码</b>，员工也一样；</li>
         <li>会话令牌：数据库只存令牌的 SHA-256，浏览器关闭即失效；</li>
         <li>主密钥：用于签发水印配方的密钥以 AES-256-GCM 加密托管，明文不落库；</li>
-        <li>加密备份：字体清单与厂牌信息用<b>你自己的恢复码</b>加密后存储，服务器不可读。</li>
+        <li>本地业务数据（客户资料、厂牌与印章、订单备注）默认只存你的本机浏览器，
+          可绑定本地备份文件夹或导出 JSON 自行保管——<b>服务端不存储、也无法读取</b>。</li>
       </ul>
 
       <h2>四、存放位置、时长与谁能看到</h2>
@@ -175,8 +177,11 @@ export function Privacy() {
         <li>存放位置：Cloudflare D1（当前区域：北美西部）， HTTPS 全程加密；</li>
         <li>保存时长：直到你注销账号。注销会<b>不可恢复地删除全部相关记录</b>（含审计）；</li>
         <li>谁能看到：只有持你凭证的你。平台方在故障排查时技术上可以接触存储内容，
-          但<b>无法还原你的密码</b>，也无法解密你用恢复码加密的备份；</li>
-        <li>第三方：Cloudflare（托管与数据库）。除此之外没有其他处理方。</li>
+          但<b>无法还原你的密码</b>；云端不含任何客户身份信息（如姓名），客户资料只在你本机；</li>
+        <li>第三方（两个）：<br />
+          · <b>Cloudflare</b>——网页托管与数据库；<br />
+          · <b>阿里云邮件推送（DirectMail）</b>——只用于发送「邮箱验证」与「密码重置」两类邮件，
+          只传递你的邮箱地址与邮件内容；不发营销邮件，不参与业务数据的存储。</li>
       </ul>
 
       <h2>五、你的权利</h2>

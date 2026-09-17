@@ -15,7 +15,8 @@
 import { runSelection, type SelectionResult } from "./webv1.js";
 import { loadAnchorPool } from "./pool.js";
 import type { CryptoProvider } from "./crypto.js";
-import { parseSfnt, parseCmap, type TtfRaw } from "./ttf/reader.js";
+import { parseSfnt, parseCmap, assertSupportedTtf, type TtfRaw } from "./ttf/reader.js";
+import { parseNameTable } from "./ttf/name.js";
 import { rebuildFont, type EmbedOutput } from "./ttf/writer.js";
 
 export interface EmbedParams {
@@ -54,11 +55,47 @@ export function buildNameId256(
 }
 
 /**
+ * 探测字体里已有的 web-v1 水印记录（Name ID 256）。
+ *
+ * @returns null = 没有水印；否则返回水印里记录的 order_id（解析不出时为 null）
+ */
+export function findExistingWatermark(fontData: Uint8Array): { orderId: string | null } | null {
+  const raw = parseSfnt(fontData);
+  const off = raw.tableOffsets.get("name");
+  const len = raw.tableLengths.get("name");
+  if (off === undefined || len === undefined) return null;
+  const rec = parseNameTable(raw.data, off, len)
+    .find((n) => n.nameID === 256 && n.platformID === 3);
+  if (!rec) return null;
+  try {
+    const meta = JSON.parse(rec.value) as { order_id?: unknown };
+    return { orderId: typeof meta.order_id === "string" ? meta.order_id : null };
+  } catch {
+    // 非 JSON 的旧记录：仍然是水印，只是读不出订单号
+    return { orderId: null };
+  }
+}
+
+/**
  * 运行完整 web-v1 嵌入。
  * @returns 新字体字节 + 统计 + 选择结果（供验证）
  */
 export async function embedWatermark(params: EmbedParams): Promise<EmbedResult> {
   const { fontData, masterKey, orderRoot, provider, tenantId, orderId, bitsSuffix = "" } = params;
+
+  assertSupportedTtf(fontData);          // OTF/CFF 入口即拒绝（产品化文案）
+
+  // 已经带水印的字体不能再签一次：新位移会叠加在旧位移上、Name 256 被后一单覆盖，
+  // 结果是第一份订单彻底失去可追溯性 —— 而这个过程此前是静默成功的。
+  // 「客户把收到的水印字体又导进字体库」是很容易发生的操作。
+  const existing = findExistingWatermark(fontData);
+  if (existing) {
+    throw new Error(
+      existing.orderId
+        ? `这份字体已经带水印（订单 ${existing.orderId}），不能重复签发——请改用未经签发的原始字体。重复嵌入会让前一份订单失去可追溯性`
+        : "这份字体已经带水印，不能重复签发——请改用未经签发的原始字体",
+    );
+  }
 
   const raw: TtfRaw = parseSfnt(fontData);
   const cmap = parseCmap(raw);

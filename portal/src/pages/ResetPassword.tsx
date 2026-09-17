@@ -6,6 +6,7 @@
  */
 
 import { useState } from "react";
+import { Button } from "../components/ui";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiAuth } from "../api/client";
 
@@ -61,9 +62,9 @@ export default function ResetPassword() {
         {token && done ? (
           <>
             {msg && <div className={`notice ${msg.ok ? "ok" : "err"}`} style={{ marginBottom: 20 }}>{msg.text}</div>}
-            <button className="btn btn-primary" onClick={() => navigate("/login", { replace: true })}>
+            <Button variant="primary" onClick={() => navigate("/login", { replace: true })}>
               去登录
-            </button>
+            </Button>
           </>
         ) : token ? (
           <form onSubmit={submit} style={{ textAlign: "left" }}>
@@ -78,9 +79,9 @@ export default function ResetPassword() {
                 placeholder="再输入一次新密码" minLength={8} required />
             </div>
             {msg && <div className={`notice ${msg.ok ? "ok" : "err"}`} style={{ marginBottom: 16 }}>{msg.text}</div>}
-            <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: "100%" }}>
+            <Button variant="primary" type="submit" disabled={busy} style={{ width: "100%" }}>
               {busy ? "提 交 中 …" : "确认重置"}
-            </button>
+            </Button>
             <p style={{ fontSize: 12, color: "var(--ink-300)", lineHeight: 1.7, marginTop: 16 }}>
               重置成功后，你在所有设备上的登录状态都会失效，需要用新密码重新登录。
             </p>

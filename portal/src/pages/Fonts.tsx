@@ -11,10 +11,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, apiFonts, apiOrders, type FontInfo } from "../api/client";
 import { listLocalFonts, saveLocalFont, removeLocalFont, sha256Of, type LocalFont } from "../lib/localFonts";
-import { maybeAutoBackup } from "../lib/backup";
+import { maybeFolderBackup } from "../lib/backupFolder";
 import { invalidateFontFace } from "../lib/fontFace";
 import { toast } from "../lib/toast";
-import { PageHeader, Spinner, ConfirmButton } from "../components/ui";
+import { assertSupportedTtf } from "@engine/ttf/reader.js";
+import { Button, ConfirmButton, PageHeader, Spinner } from "../components/ui";
+import { IconScanSearch, IconSpark, IconSync, IconTrash } from "../components/Icon";
 import GlyphPreview from "../components/GlyphPreview";
 
 type LocalMeta = Omit<LocalFont, "data">;
@@ -30,17 +32,21 @@ interface Row {
   cloud: boolean;       // 云端已登记哈希
   cloudId?: string;     // 云端 font_id
   orderCount: number;
+  /** 最近一单的时间（云端订单 created_at 最大值；0 = 还没签过） */
+  lastOrderAt: number;
   savedAt?: number;
 }
 
-function mergeRows(local: LocalMeta[], cloud: FontInfo[], orders: Array<{ font_id: string }>): Row[] {
+function mergeRows(local: LocalMeta[], cloud: FontInfo[], orders: Array<{ font_id: string; created_at: number }>): Row[] {
   const map = new Map<string, Row>();
   for (const f of cloud) {
     const sha = f.original_font_sha256 || "";
     const key = sha ? sha.slice(0, 16) : f.font_id.replace(/^font_/, "");
     map.set(key, {
-      key, name: f.display_name, sha256: sha, filename: f.original_filename,
-      size: 0, glyphCount: f.glyph_count ?? 0, local: false, cloud: true, cloudId: f.font_id, orderCount: 0,
+      // 云端不再存本机文件名与字形数（P1 瘦身）；这两个值只在本机字体库有
+      key, name: f.display_name, sha256: sha, filename: f.display_name,
+      size: 0, glyphCount: 0, local: false, cloud: true, cloudId: f.font_id, orderCount: 0,
+      lastOrderAt: 0,
     });
   }
   for (const l of local) {
@@ -57,12 +63,15 @@ function mergeRows(local: LocalMeta[], cloud: FontInfo[], orders: Array<{ font_i
       cloud: !!prev,
       cloudId: prev?.cloudId,
       orderCount: 0,
+      lastOrderAt: 0,
       savedAt: l.savedAt,
     });
   }
   const rows = [...map.values()];
   for (const r of rows) {
-    r.orderCount = orders.filter((o) => o.font_id === r.cloudId || o.font_id === r.key).length;
+    const mine = orders.filter((o) => o.font_id === r.cloudId || o.font_id === r.key);
+    r.orderCount = mine.length;
+    r.lastOrderAt = mine.reduce((mx, o) => Math.max(mx, o.created_at ?? 0), 0);
   }
   rows.sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
   return rows;
@@ -101,8 +110,11 @@ export default function Fonts() {
     setBusy("pick");
     try {
       const buf = await f.arrayBuffer();
+      assertSupportedTtf(new Uint8Array(buf));   // OTF/CFF 拒之门外（人话文案）
       const sha = await sha256Of(buf);
       const id = sha.slice(0, 16);
+      // 换版本语义（5.6）：同名不同哈希 = 新版本，作为新字体登记，旧版本与历史订单不受影响
+      const sameName = (await listLocalFonts()).find((x) => x.filename === f.name && x.sha256 !== sha);
       await saveLocalFont({
         id,
         name: f.name.replace(/\.(ttf|otf|woff2?)$/i, ""),
@@ -114,7 +126,11 @@ export default function Fonts() {
         data: buf,
       });
       invalidateFontFace(id);
-      toast.success(`已存入本机：${f.name}`, { detail: "未上传、未同步——只保存在你的浏览器里" });
+      toast.success(`已存入本机：${f.name}`, {
+        detail: sameName
+          ? `检测到与「${sameName.name}」同名不同版本——已作为新字体登记，旧版本与它的历史订单不受影响`
+          : "未上传、未同步——只保存在你的浏览器里，版本从此锁定",
+      });
       await load();
     } catch (e) {
       toast.error("存入本机失败", { detail: (e as Error).message });
@@ -130,9 +146,7 @@ export default function Fonts() {
     try {
       await apiFonts.register({
         display_name: row.name,
-        original_filename: row.filename || "unknown.ttf",
         original_font_sha256: row.sha256,
-        glyph_count: 0,
       });
       toast.success(`已同步哈希：${row.name}`, { detail: "只发送了 64 个字符的 SHA-256，字体文件仍在本机" });
       await load();
@@ -148,7 +162,7 @@ export default function Fonts() {
       invalidateFontFace(row.key);
       toast.info(`已从本机删除：${row.name}`, { detail: "云端哈希记录保留，不影响追溯" });
       await load();
-      maybeAutoBackup();
+      maybeFolderBackup();
     } catch (e) {
       toast.error("删除失败", { detail: (e as Error).message });
     } finally { setBusy(null); }
@@ -170,13 +184,12 @@ export default function Fonts() {
           <>
             <input className="search" value={q} onChange={(e) => setQ(e.target.value)}
               placeholder="搜索字体" aria-label="搜索字体" />
-            <input ref={fileRef} type="file" accept=".ttf,.otf,font/ttf" className="hidden-file"
+            <input ref={fileRef} type="file" accept=".ttf,font/ttf" className="hidden-file"
               onChange={(e) => void pickFont(e.target.files?.[0] ?? null)} />
-            <button className="btn btn-primary btn-md" disabled={busy === "pick"}
+            <Button variant="primary" disabled={busy === "pick"} busy={busy === "pick"}
               onClick={() => fileRef.current?.click()}>
-              {busy === "pick" ? <Spinner /> : null}
               添加字体
-            </button>
+            </Button>
           </>
         }
       />
@@ -198,7 +211,7 @@ export default function Fonts() {
                   {[
                     fmtSize(r.size),
                     r.glyphCount > 0 ? `${r.glyphCount.toLocaleString("zh-CN")} 字` : "",
-                    r.cloud ? "已同步" : "仅本机",
+                    r.cloud ? "已同步" : "本机 · 版本已锁定",
                   ].filter(Boolean).join(" · ")}
                 </span>
                 <div className="font-specimen">
@@ -212,21 +225,33 @@ export default function Fonts() {
                     </div>
                     <div className="font-file mono">{r.filename}</div>
                     <div className="meta">
-                      {r.orderCount} 次签发{r.savedAt ? ` · 入库 ${new Date(r.savedAt).toLocaleDateString("zh-CN")}` : ""}
+                      {r.orderCount
+                        ? `${r.orderCount} 次签发 · 最近 ${new Date(r.lastOrderAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })}`
+                        : "还没有签发记录"}{r.savedAt ? ` · 入库 ${new Date(r.savedAt).toLocaleDateString("zh-CN")}` : ""}
                     </div>
                   </div>
+                  {/* 悬停操作区：轻量图标（语义与侧栏导航同源：ScanSearch=追溯、FileSignature=签发、
+                      RefreshCw=同步哈希、Trash2=删除）；平时隐藏，hover / 键盘聚焦出现 */}
                   <div className="mini">
-                    <button onClick={() => navigate("/trace")}>追溯</button>
+                    <button title="追溯" aria-label="追溯" onClick={() => navigate("/trace")}>
+                      <IconScanSearch size={15} />
+                    </button>
                     {r.local && (
-                      <button disabled={!!busy}
-                        onClick={() => navigate("/issue", { state: { fontId: r.key } })}>签发</button>
+                      <button disabled={!!busy} title="签发" aria-label="签发"
+                        onClick={() => navigate("/issue", { state: { fontId: r.key } })}>
+                        <IconSpark size={15} />
+                      </button>
                     )}
                     {r.local && !r.cloud && (
-                      <button disabled={!!busy} onClick={() => void syncHash(r)}>同步</button>
+                      <button disabled={!!busy} title="同步哈希" aria-label="同步哈希到云端"
+                        onClick={() => void syncHash(r)}>
+                        <IconSync size={15} />
+                      </button>
                     )}
                     {r.local && (
-                      <ConfirmButton label="删除" confirmLabel="确认删除" danger
+                      <ConfirmButton label="" confirmLabel="确认删除字体" title="删除字体" danger
                         disabled={!!busy} busy={busy === r.key}
+                        icon={<IconTrash size={15} />}
                         onConfirm={() => void removeLocal(r)} />
                     )}
                   </div>

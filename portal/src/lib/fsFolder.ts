@@ -1,83 +1,71 @@
 /**
- * 字体库文件夹（File System Access API · Chromium-only）
+ * 本地文件夹（File System Access API · Chromium-only）——统一绑定
  *
- * 用户绑定一个本地文件夹作为字体库来源：
- *   - 句柄（FileSystemDirectoryHandle）持久化在 IndexedDB，跨会话可用；
- *   - 权限：会话内授权一次后可反复读取；跨会话 Chrome 会重新询问，
- *     对同一目录授权三次后 Chrome 会记住（近似持久）；
- *   - 扫描：枚举文件夹内 .ttf / .otf → 算 SHA-256 → 与本地库比对 →
- *     新字体整体导入（含字体文件本体，可直接用于签发）；
- *   - 字形数：解析 maxp 表 numGlyphs（ttf/otf 通用），导入即有元数据。
+ * 一个文件夹同时承担两个职责（P0–P2 起合并，见数据管理方案）：
+ *   1. 字体库来源（读）：扫描 .ttf/.otf → 算 SHA-256 → 导入本机库；
+ *   2. 自动备份目标（写）：数据变更时写入 typeflow-data.json（backupFolder.ts）。
  *
+ * 因此句柄统一以 **readwrite** 模式保存（一次授权同时覆盖读与写），
+ * 权限查询也用 readwrite。历史版本曾分存 fonts（只读）/ backup（读写）
+ * 两个句柄，getLocalFolder 会做一次静默迁移。
+ *
+ * 句柄存统一握手层 handles store，key = "local"。
  * file:// 与 Safari/Firefox 不可用——调用方需以 isFsaSupported() 分支展示。
  */
 
+import { STORE, dbGet, dbPut, dbDelete } from "./db";
 import { listLocalFonts, saveLocalFont, sha256Of, type LocalFont } from "./localFonts";
 
-const HANDLE_DB = "typeflow_fs";
-const HANDLE_STORE = "handles";
-const HANDLE_KEY = "fonts";
+/** 统一句柄 key（握手段 handles store） */
+export const FOLDER_KEY = "local";
+/** 历史句柄 key（只读字体库 / 读写备份），迁移到 FOLDER_KEY 后即删除 */
+const LEGACY_KEYS = ["fonts", "backup"];
 
 export function isFsaSupported(): boolean {
   return typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === "function";
 }
 
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(HANDLE_DB, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(HANDLE_STORE)) {
-        db.createObjectStore(HANDLE_STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+/**
+ * 读取本地文件夹句柄：先读统一 key，未找到时回退迁移历史 key（fonts/backup）。
+ * 两个旧句柄以 readwrite 合并成一份（备份写必然需要写权限，read 授权不兼容）。
+ */
+export async function getFolderHandle(): Promise<FileSystemDirectoryHandle | null> {
+  const cur = await dbGet<FileSystemDirectoryHandle>(STORE.HANDLES, FOLDER_KEY);
+  if (cur) return cur;
+  for (const legacy of LEGACY_KEYS) {
+    const old = await dbGet<FileSystemDirectoryHandle>(STORE.HANDLES, legacy);
+    if (!old) continue;
+    await dbPut(STORE.HANDLES, old, FOLDER_KEY);
+    await dbDelete(STORE.HANDLES, legacy);
+    return old;
+  }
+  return null;
 }
 
-async function saveHandle(h: unknown): Promise<void> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HANDLE_STORE, "readwrite");
-    tx.objectStore(HANDLE_STORE).put(h, HANDLE_KEY);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+export async function clearFolderHandle(): Promise<void> {
+  await dbDelete(STORE.HANDLES, FOLDER_KEY);
+  for (const legacy of LEGACY_KEYS) await dbDelete(STORE.HANDLES, legacy);
 }
 
-export async function getFontDirHandle(): Promise<FileSystemDirectoryHandle | null> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HANDLE_STORE, "readonly");
-    const req = tx.objectStore(HANDLE_STORE).get(HANDLE_KEY);
-    req.onsuccess = () => resolve((req.result as FileSystemDirectoryHandle | undefined) ?? null);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function clearFontDirHandle(): Promise<void> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(HANDLE_STORE, "readwrite");
-    tx.objectStore(HANDLE_STORE).delete(HANDLE_KEY);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-/** 绑定文件夹（必须在用户点击中调用）；返回文件夹名 */
-export async function pickFontFolder(): Promise<string> {
-  const picker = (window as unknown as { showDirectoryPicker?: (o?: unknown) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker;
+/** 绑定本地文件夹（必须在用户点击中调用）；统一 readwrite 模式 */
+export async function pickFolder(): Promise<string> {
+  const picker = (window as unknown as {
+    showDirectoryPicker?: (o?: unknown) => Promise<FileSystemDirectoryHandle>;
+  }).showDirectoryPicker;
   if (!picker) throw new Error("当前浏览器不支持文件夹选择，请使用 Chrome 或 Edge");
-  const handle = await picker({ id: "typeflow-fonts", mode: "read" });
-  await saveHandle(handle);
+  const handle = await picker({ id: "typeflow-local", mode: "readwrite" });
+  await dbPut(STORE.HANDLES, handle, FOLDER_KEY);
+  // 绑定新文件夹后，历史句柄不再兜底，避免旧句柄被误用
+  for (const legacy of LEGACY_KEYS) await dbDelete(STORE.HANDLES, legacy);
   return handle.name;
 }
 
-/** 查询/请求读权限；requestPermission 必须在用户手势中调用 */
-export async function checkDirPermission(handle: FileSystemDirectoryHandle, request = false): Promise<"granted" | "prompt" | "denied"> {
-  const opts = { mode: "read" as const };
+/** 查询/请求读写权限；requestPermission 必须在用户手势中调用 */
+export async function checkFolderPerm(
+  handle: FileSystemDirectoryHandle,
+  request = false,
+): Promise<"granted" | "prompt" | "denied"> {
+  const opts = { mode: "readwrite" as const };
   const h = handle as unknown as {
     queryPermission: (o: unknown) => Promise<PermissionState>;
     requestPermission?: (o: unknown) => Promise<PermissionState>;
@@ -87,6 +75,28 @@ export async function checkDirPermission(handle: FileSystemDirectoryHandle, requ
     state = await h.requestPermission(opts);
   }
   return state as "granted" | "prompt" | "denied";
+}
+
+/* ---------- 兼容旧导出名（原字体库文件夹语义） ---------- */
+
+/** 旧名：读取「本地文件夹」句柄（同 getFolderHandle） */
+export async function getFontDirHandle(): Promise<FileSystemDirectoryHandle | null> {
+  return getFolderHandle();
+}
+/** 旧名：解除绑定（同 clearFolderHandle） */
+export async function clearFontDirHandle(): Promise<void> {
+  return clearFolderHandle();
+}
+/** 旧名：绑定（同 pickFolder） */
+export async function pickFontFolder(): Promise<string> {
+  return pickFolder();
+}
+/** 旧名：读写权限（同 checkFolderPerm） */
+export async function checkDirPermission(
+  handle: FileSystemDirectoryHandle,
+  request = false,
+): Promise<"granted" | "prompt" | "denied"> {
+  return checkFolderPerm(handle, request);
 }
 
 /** 解析 maxp 表 numGlyphs（ttf / otf 通用；解析失败返回 0） */
@@ -117,11 +127,11 @@ export interface FolderScanResult {
   folderName: string;
 }
 
-/** 扫描绑定文件夹：新字体（按 SHA-256 判重）连同本体导入本地库 */
+/** 扫描本地文件夹：新字体（按 SHA-256 判重）连同本体导入本地库 */
 export async function scanFontFolder(): Promise<FolderScanResult> {
-  const handle = await getFontDirHandle();
-  if (!handle) throw new Error("尚未绑定字体库文件夹");
-  const perm = await checkDirPermission(handle);
+  const handle = await getFolderHandle();
+  if (!handle) throw new Error("尚未绑定本地文件夹");
+  const perm = await checkFolderPerm(handle);
   if (perm !== "granted") throw new Error("需要重新授权文件夹访问");
 
   const existing = new Set((await listLocalFonts()).map((f) => f.id));
@@ -131,7 +141,9 @@ export async function scanFontFolder(): Promise<FolderScanResult> {
   const values = (handle as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values();
   for await (const entry of values) {
     if (entry.kind !== "file") continue;
-    if (!/\.(ttf|otf)$/i.test(entry.name)) continue;
+    // 与单个导入（Fonts.tsx 的 assertSupportedTtf）保持一致：OTF/CFF 引擎不支持，
+    // 扫进来只会在签发或追溯时才报错。这里就挡掉，别让它们进库。
+    if (!/\.ttf$/i.test(entry.name)) continue;
     result.total++;
     const file = await (entry as FileSystemFileHandle).getFile();
     const buf = await file.arrayBuffer();

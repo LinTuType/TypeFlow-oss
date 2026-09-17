@@ -2,54 +2,54 @@
  * 客户页 —— 原型 v9 结构：页头(搜索+新建客户) + 线性表格 + 模态框编辑
  *
  * 客户资料默认只存本机（IndexedDB，与字体文件同待遇）：
- *   - 服务器零敏感数据：云端只存订单的 client_ref（客户名文本），无客户库
- *   - 防丢失 = 可选的 E2E 加密备份（恢复码加密 → 云端 vault 只见密文）
+ *   - 服务器零敏感数据：云端订单只存不透明 client_id（cu_xxx），无姓名
+ *   - 防丢失 = 设置页「备份文件夹 / 导出 JSON」（本地业务数据不上云）
  * 表格列按本项目的真实数据模型：客户 / 联系方式 / 订单 / 最近授权 / 操作。
+ * 订单数 = 云端订单里 client_id 等于该客户 ID 的条数。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiOrders, apiVault, type VaultState } from "../api/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { apiOrders, type OrderInfo } from "../api/client";
 import { listCustomers, saveCustomer, removeCustomer, replaceCustomers, genCustomerId, type Customer } from "../lib/localCustomers";
-import { generateRecoveryCode, encryptVault, decryptVault, isValidRecoveryCode } from "../lib/vault";
+import { listOrderNotes, type LocalOrderNote } from "../lib/localOrders";
+import { maybeFolderBackup } from "../lib/backupFolder";
 import { toast } from "../lib/toast";
-import {
-  PageHeader, Spinner, ConfirmButton,
-} from "../components/ui";
-import { IconTrash, IconDownload, IconUpload, IconShield, IconCheckCircle, IconCopy, IconChevron } from "../components/Icon";
+import { Modal,  Button, ConfirmButton, PageHeader, Spinner } from "../components/ui";
+import { IconPencil, IconTrash } from "../components/Icon";
 
-const VAULT_KEY = "customers";
-const BACKUP_SCHEMA = "typeflow/customers/v1";
-
-/** 客户列表 UI 行（额外带订单数，来自云端订单的 client_ref 匹配） */
+/** 客户列表 UI 行（额外带订单数，来自云端订单的 client_id 匹配） */
 interface RowExt extends Customer {
-  labelOrder: number;   // 该客户名匹配的云端订单数
+  labelOrder: number;   // 该客户 ID 匹配的云端订单数
 }
 
 export default function Clients() {
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [orders, setOrders] = useState<Array<{ client_ref?: string; status: string }>>([]);
+  const [orders, setOrders] = useState<OrderInfo[]>([]);
+  /** 订单金额在本机订单关联里（5.6 起金额不出网） */
+  const [amountByOrderId, setAmountByOrderId] = useState<Map<string, string>>(new Map());
+  /** 本机订单关联全量（orderId → clientId / note / amount）：云端不记录客户，聚合全靠它 */
+  const [notesByOrderId, setNotesByOrderId] = useState<Map<string, LocalOrderNote>>(new Map());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  /** 客户详情卡（列表点击出卡——对齐桌面版 DetailPanel，网页版用点击而非 hover） */
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // 表单（新增 / 编辑 共用，走模态框）
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [form, setForm] = useState({ name: "", email: "", note: "" });
   const [formErr, setFormErr] = useState("");
 
-  // 加密备份
-  const [vault, setVault] = useState<VaultState | null>(null);
-  const [recovery, setRecovery] = useState("");
-  const [showNewCode, setShowNewCode] = useState<string | null>(null);
-  const restFileRef = useRef<HTMLInputElement>(null);
-
   const load = useCallback(async () => {
     try {
-      const [cs, os] = await Promise.all([listCustomers(), apiOrders.list()]);
+      const [cs, os, notes] = await Promise.all([listCustomers(), apiOrders.list(), listOrderNotes()]);
       setCustomers(cs);
       setOrders(os.orders ?? []);
-      const v = await apiVault.get(VAULT_KEY);
-      setVault(v);
+      setAmountByOrderId(new Map(notes.filter((n) => n.amount).map((n) => [n.orderId, n.amount!])));
+      setNotesByOrderId(new Map(notes.map((n) => [n.orderId, n])));
     } catch (e) {
       toast.error("客户数据加载失败", { detail: (e as Error).message });
     } finally {
@@ -58,6 +58,16 @@ export default function Clients() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // 订单模态框里点客户名跳过来：直接打开该客户的详情卡
+  useEffect(() => {
+    const focus = (location.state as { focusClientId?: string } | null)?.focusClientId;
+    if (focus) {
+      setDetailId(focus);
+      // 用掉 state，避免刷新后重复弹卡
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   /* ---------- 客户 CRUD ---------- */
 
@@ -75,7 +85,9 @@ export default function Clients() {
 
   const cancelEdit = () => { setEditingId(null); setFormErr(""); };
 
-  const submitForm = async () => {
+  /** onDone：保存成功后如何关框。由 Modal 的 render prop 传入 close，
+      好让退场动画播完再卸载；不传则退回立即关闭。 */
+  const submitForm = async (onDone?: () => void) => {
     const name = form.name.trim();
     if (!name) { setFormErr("客户名必填"); return; }
     setBusy("form");
@@ -89,8 +101,9 @@ export default function Clients() {
         await saveCustomer({ id: editingId, name, email: form.email.trim() || undefined, note: form.note.trim() || undefined, createdAt: customers.find((x) => x.id === editingId)?.createdAt ?? now, updatedAt: now });
         toast.success(`已更新：${name}`);
       }
-      setEditingId(null);
+      if (onDone) onDone(); else setEditingId(null);
       await load();
+      maybeFolderBackup();
     } catch (e) {
       toast.error("保存失败", { detail: (e as Error).message });
     } finally { setBusy(null); }
@@ -102,105 +115,7 @@ export default function Clients() {
       await removeCustomer(c.id);
       toast.info(`已删除：${c.name}`);
       await load();
-    } catch (e) {
-      toast.error("删除失败", { detail: (e as Error).message });
-    } finally { setBusy(null); }
-  };
-
-  /* ---------- 加密备份 ---------- */
-
-  /** 生成恢复码（只显示这一次；之后只能靠用户保存的副本） */
-  const genCode = () => {
-    setShowNewCode(generateRecoveryCode());
-    toast.info("恢复码已生成，请立即抄写或复制保存", { detail: "只显示这一次，刷新后不再出现" });
-  };
-
-  /** 用当前恢复码加密客户列表 → 上传云端 vault */
-  const backupNow = async () => {
-    const code = recovery.trim();
-    if (!isValidRecoveryCode(code)) { toast.warn("请输入完整恢复码（32 位）"); return; }
-    if (customers.length === 0) { toast.warn("客户库是空的，没有可备份的内容"); return; }
-    setBusy("backup");
-    try {
-      const cipher = await encryptVault(code, { schema: BACKUP_SCHEMA, items: customers });
-      await apiVault.put(VAULT_KEY, cipher);
-      toast.success("已加密备份到云端", { detail: "服务器只保存密文，解密口令在你手里" });
-      await load();
-    } catch (e) {
-      toast.error("备份失败", { detail: (e as Error).message });
-    } finally { setBusy(null); }
-  };
-
-  /** 导出加密备份为本地文件（.tfw，可离线保存） */
-  const exportFile = async () => {
-    const code = recovery.trim();
-    if (!isValidRecoveryCode(code)) { toast.warn("请输入恢复码以加密导出"); return; }
-    if (customers.length === 0) { toast.warn("客户库是空的，没有可导出的内容"); return; }
-    setBusy("export");
-    try {
-      const cipher = await encryptVault(code, { schema: BACKUP_SCHEMA, items: customers });
-      const blob = new Blob([cipher], { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `typeflow-customers-backup-${new Date().toISOString().slice(0, 10)}.tfw`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      toast.success("已导出加密备份文件", { detail: "文件是密文，输入恢复码才能恢复" });
-    } catch (e) {
-      toast.error("导出失败", { detail: (e as Error).message });
-    } finally { setBusy(null); }
-  };
-
-  /** 从本地文件恢复（解密 → 替换整个客户库） */
-  const importFile = async (f: File | null) => {
-    if (!f) return;
-    const code = recovery.trim();
-    if (!isValidRecoveryCode(code)) { toast.warn("先输入恢复码，再导入备份文件"); return; }
-    setBusy("import");
-    try {
-      const cipher = await f.text();
-      const data = await decryptVault(code, cipher) as { schema?: string; items?: Customer[] };
-      if (data.schema !== BACKUP_SCHEMA || !Array.isArray(data.items)) {
-        throw new Error("文件不是有效的文镇客户备份");
-      }
-      await replaceCustomers(data.items);
-      toast.success(`已从备份恢复 ${data.items.length} 位客户`, { detail: "本机客户库已替换为备份内容" });
-      await load();
-    } catch (e) {
-      toast.error("恢复失败", { detail: (e as Error).message });
-    } finally {
-      setBusy(null);
-      if (restFileRef.current) restFileRef.current.value = "";
-    }
-  };
-
-  /** 换设备/丢数据恢复：从云端拉密文 → 解密 → 替换本地库 */
-  const restoreCloud = async () => {
-    const code = recovery.trim();
-    if (!isValidRecoveryCode(code)) { toast.warn("请输入恢复码（32 位）"); return; }
-    if (!vault?.exists || !vault.content) { toast.warn("云端还没有备份，先用「加密备份到云端」"); return; }
-    setBusy("restore");
-    try {
-      const data = await decryptVault(code, vault.content) as { schema?: string; items?: Customer[] };
-      if (data.schema !== BACKUP_SCHEMA || !Array.isArray(data.items)) {
-        throw new Error("云端备份不是有效的客户备份");
-      }
-      // 仅在确认恢复码正确后才替换本地
-      await replaceCustomers(data.items);
-      toast.success(`已从云端恢复 ${data.items.length} 位客户`);
-      await load();
-    } catch (e) {
-      toast.error("恢复失败", { detail: (e as Error).message });
-    } finally { setBusy(null); }
-  };
-
-  /** 删除云端密文（关闭备份） */
-  const clearCloud = async () => {
-    setBusy("clear");
-    try {
-      await apiVault.del(VAULT_KEY);
-      toast.info("已删除云端备份", { detail: "本机客户库不受影响" });
-      await load();
+      maybeFolderBackup();
     } catch (e) {
       toast.error("删除失败", { detail: (e as Error).message });
     } finally { setBusy(null); }
@@ -211,9 +126,10 @@ export default function Clients() {
   const rows: RowExt[] = useMemo(
     () => customers.map((c) => ({
       ...c,
-      labelOrder: orders.filter((o) => (o.client_ref ?? "") === c.name).length,
+      // 订单数走本机订单关联（云端不记录客户）：orderId → clientId
+      labelOrder: orders.filter((o) => notesByOrderId.get(o.order_id)?.clientId === c.id).length,
     })),
-    [customers, orders],
+    [customers, orders, notesByOrderId],
   );
 
   const filtered = useMemo(() => {
@@ -221,6 +137,23 @@ export default function Clients() {
     if (!k) return rows;
     return rows.filter((c) => c.name.toLowerCase().includes(k) || (c.email ?? "").toLowerCase().includes(k));
   }, [rows, q]);
+
+  const detail = rows.find((c) => c.id === detailId) ?? null;
+  /** 该客户的云端订单（新→旧），及累计金额（金额是展示用字符串，本地解析求和） */
+  const detailOrders = useMemo(
+    () => orders
+      .filter((o) => notesByOrderId.get(o.order_id)?.clientId === detailId)
+      .sort((a, b) => b.created_at - a.created_at),
+    [orders, detailId, notesByOrderId],
+  );
+  const detailTotal = useMemo(
+    () => detailOrders.reduce((sum, o) => {
+      // 金额只在本机订单关联里（5.6 起金额不出网）——OrderInfo 上根本没有这个字段
+      const a = amountByOrderId.get(o.order_id) ?? "";
+      return sum + (Number(a.replace(/[^0-9.]/g, "")) || 0);
+    }, 0),
+    [detailOrders, amountByOrderId],
+  );
 
   const fmtDate = (t: number) => new Date(t).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 
@@ -242,14 +175,14 @@ export default function Clients() {
           <>
             <input className="search" value={q} onChange={(e) => setQ(e.target.value)}
               placeholder="搜索客户" aria-label="搜索客户" />
-            <button className="btn btn-primary btn-md" onClick={startAdd}>新建客户</button>
+            <Button variant="primary" onClick={startAdd}>新建客户</Button>
           </>
         }
       />
 
       {/* 线性表格（原型 client-cols；列按真实数据模型取 5 列） */}
       <div className="table" style={{ marginTop: 8 }}>
-        <div className="thead client-cols" style={{ gridTemplateColumns: "1.1fr 1.2fr .4fr .9fr .8fr" }}>
+        <div className="thead client-cols">
           <span>客户</span><span>联系方式</span><span>订单</span><span>最近授权</span><span>操作</span>
         </div>
         {filtered.length === 0 ? (
@@ -258,7 +191,9 @@ export default function Clients() {
             <div className="empty-desc">添加客户后可在签发订单时直接选用，名称会写进授权书。</div>
           </div>
         ) : filtered.map((c) => (
-          <div key={c.id} className="trow client-cols" style={{ gridTemplateColumns: "1.1fr 1.2fr .4fr .9fr .8fr" }}>
+          <div key={c.id} className="trow client-cols" role="button" tabIndex={0}
+            onClick={() => setDetailId(c.id)}
+            onKeyDown={(e) => { if (e.key === "Enter") setDetailId(c.id); }}>
             <b style={{ fontWeight: 500 }}>
               {c.name}
               <span style={{ display: "block", fontSize: 11, color: "var(--muted)", fontWeight: 400, marginTop: 2 }}>
@@ -268,115 +203,71 @@ export default function Clients() {
             <span>{c.email || <span style={{ color: "var(--muted)" }}>—</span>}</span>
             <span>{c.labelOrder || <span style={{ color: "var(--muted)" }}>—</span>}</span>
             <span>{c.labelOrder > 0 ? fmtDate(c.updatedAt) : <span style={{ color: "var(--muted)" }}>—</span>}</span>
-            <span style={{ display: "flex", gap: 6 }}>
-              <button className="btn btn-ghost btn-sm" disabled={!!busy} onClick={() => startEdit(c)}>编辑</button>
-              <ConfirmButton label="删除" confirmLabel="确认删除"
+            {/* 行内操作：轻量图标（与追溯历史行同一套语言，hover 才显描边） */}
+            <span className="row-acts" onClick={(e) => e.stopPropagation()}>
+              <button className="btn btn-icon" disabled={!!busy} title="编辑客户"
+                aria-label="编辑客户" onClick={() => startEdit(c)}>
+                <IconPencil size={15} />
+              </button>
+              <ConfirmButton label="" confirmLabel="确认删除" title="删除客户"
                 danger disabled={!!busy} busy={busy === `del:${c.id}`}
-                icon={<IconTrash size={13} />}
+                icon={<IconTrash size={15} />}
                 onConfirm={() => void delCustomer(c)} />
             </span>
           </div>
         ))}
       </div>
 
-      {/* ── 加密备份：Advanced 折叠区（默认收起） ── */}
-      <details className="adv-collapse">
-        <summary>
-          <span className="adv-summary-kicker">ADVANCED</span>
-          <span className="adv-summary-label">加密备份 · 防换设备丢失</span>
-          <IconChevron size={14} className="adv-chevron" />
-        </summary>
-        <div className="adv-body">
-          <div style={{ marginBottom: 14 }}>
-            <div className="notice">
-              <strong style={{ color: "var(--danger)" }}>恢复码丢失 = 备份永远打不开</strong>
-              。备份用你自己的恢复码加密，服务器只存密文——所以密码必须抄好。
-            </div>
-          </div>
+      {/* ── 客户详情卡（列表点击出卡；信息拼接全部在本地完成——姓名在本机，订单/金额在云端） ── */}
+      {detail && (
+        <Modal onClose={() => setDetailId(null)} label={`客户详情：${detail.name}`}>
+          {(close) => (<>
+            <h2>{detail.name}</h2>
+            <div className="kv"><div className="kv-k">联系方式</div>
+              <div className="kv-v">{detail.email || <span style={{ color: "var(--muted)" }}>—</span>}</div></div>
+            {detail.note && <div className="kv"><div className="kv-k">备注</div><div className="kv-v">{detail.note}</div></div>}
+            <div className="kv"><div className="kv-k">添加于</div>
+              <div className="kv-v">{new Date(detail.createdAt).toLocaleDateString("zh-CN")}</div></div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 18, alignItems: "start" }}>
-            {/* 左：云端备份状态 + 操作 */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <IconShield size={16} style={{ color: "var(--ok)" }} />
-                {vault?.exists ?
-                  <span className="badge badge-ok"><b>云端备份已开启</b></span>
-                  : <span className="badge badge-neutral"><b>未开启云端备份</b></span>}
-                {vault?.updated_at && (
-                  <span style={{ fontSize: 12, color: "var(--ink-500)" }}>
-                    上次备份 {new Date(vault.updated_at).toLocaleString("zh-CN")}
-                  </span>
-                )}
-              </div>
-
-              <div className="notice" style={{ padding: "10px 14px" }}>
-                客户资料默认只存这台设备。开启备份后，换电脑 / 清缓存也能通过恢复码找回
-                —— 代价是恢复码必须由你自己妥善保存。
-              </div>
-
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button className="btn btn-outline btn-sm" disabled={!!busy || customers.length === 0} onClick={() => void backupNow()}>
-                  {busy === "backup" ? <Spinner /> : <IconUpload size={15} />}
-                  加密备份到云端
-                </button>
-                <button className="btn btn-outline btn-sm" disabled={!!busy || customers.length === 0} onClick={() => void exportFile()}>
-                  {busy === "export" ? <Spinner /> : <IconDownload size={15} />}
-                  导出加密备份文件
-                </button>
-                <button className="btn btn-outline btn-sm" disabled={!!busy || !vault?.exists} onClick={() => void restoreCloud()}>
-                  {busy === "restore" ? <Spinner /> : <IconCheckCircle size={15} />}
-                  从云端恢复
-                </button>
-                {vault?.exists && (
-                  <ConfirmButton label="删除云端备份" confirmLabel="确认删除"
-                    danger disabled={!!busy} busy={busy === "clear"}
-                    icon={<IconTrash size={14} />}
-                    onConfirm={() => void clearCloud()} />
-                )}
-              </div>
-
-              <input ref={restFileRef} type="file" accept=".tfw,application/json" className="hidden-file"
-                onChange={(e) => void importFile(e.target.files?.[0] ?? null)} />
-            </div>
-
-            {/* 右：恢复码 */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, borderLeft: "1px solid var(--line)", paddingLeft: 18 }}>
-              <div className="field-label" style={{ fontSize: 12.5, color: "var(--ink-500)" }}>恢复码</div>
-              <input
-                className="input mono" placeholder="粘贴或输入 32 位恢复码"
-                value={recovery}
-                spellCheck={false} autoComplete="off"
-                onChange={(e) => setRecovery(e.target.value.toUpperCase())}
-              />
-              {showNewCode && (
-                <div className="notice warn" style={{ padding: "10px 14px" }}>
-                  <div style={{ fontWeight: 600, marginBottom: 6, color: "var(--warn)" }}>新恢复码（只显示这一次）</div>
-                  <div className="mono" style={{ fontSize: 14, letterSpacing: 1.2, wordBreak: "break-all", color: "var(--ink-700)" }}>
-                    {showNewCode}
+            <div className="body-head" style={{ marginTop: 22 }}>关联订单 · {detailOrders.length} 笔</div>
+            {detailOrders.length === 0 ? (
+              <p style={{ margin: "10px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+                还没有关联订单——签发时选择这位客户即可自动关联（云端只记客户 ID，不记姓名）。
+              </p>
+            ) : (
+              <div style={{ marginTop: 4 }}>
+                {detailOrders.map((o) => (
+                  <div className="kv" key={o.order_id}>
+                    <div className="kv-k mono">{o.order_id}</div>
+                    <div className="kv-v">
+                      {amountByOrderId.get(o.order_id) ? <>¥ {amountByOrderId.get(o.order_id)}</> : <span style={{ color: "var(--muted)" }}>金额未填</span>}
+                      <span style={{ display: "block", fontSize: 11, color: "var(--muted)", fontWeight: 400, marginTop: 2 }}>
+                        {new Date(o.created_at).toLocaleDateString("zh-CN")} · {o.status === "issued" ? "已签发" : o.status}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <button className="btn btn-sm btn-outline"
-                      onClick={() => { void navigator.clipboard?.writeText(showNewCode ?? ""); toast.success("已复制恢复码"); }}>
-                      <IconCopy size={13} />复制
-                    </button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => setShowNewCode(null)}>我已保存</button>
-                  </div>
-                </div>
-              )}
-              <button className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} onClick={genCode}>生成新恢复码</button>
-              <div style={{ fontSize: 11.5, color: "var(--ink-500)", lineHeight: 1.6 }}>
-                一份恢复码 = 一把钥匙，用于加密和解密你的备份。
-                请抄写到纸上或密码管理器；不要截图发聊天工具。
+                ))}
+              </div>
+            )}
+            <div className="kv" style={{ marginTop: 10 }}>
+              <div className="kv-k">累计授权费用</div>
+              <div className="kv-v" style={{ font: "600 15px var(--serif)" }}>
+                {detailTotal > 0 ? `¥ ${detailTotal.toLocaleString("zh-CN")}` : "—"}
               </div>
             </div>
-          </div>
-        </div>
-      </details>
+            <div className="modal-actions">
+              <Button onClick={close}>关闭</Button>
+              {/* 编辑是「关掉本框、开另一个框」的切换，不能走 close（否则两层遮罩叠着淡） */}
+              <Button variant="primary" onClick={() => { setDetailId(null); startEdit(detail); }}>编辑资料</Button>
+            </div>
+          </>)}
+        </Modal>
+      )}
 
-      {/* ── 新建 / 编辑客户模态框（原型 .modal 语言） ── */}
+      {/* ── 新建 / 编辑客户模态框（共用 Modal：Esc / 焦点圈定 / 滚动锁） ── */}
       {editingId && (
-        <div className="modal-back open" onClick={(e) => { if (e.target === e.currentTarget) cancelEdit(); }}>
-          <div className="modal" role="dialog" aria-label={editingId === "new" ? "新建客户" : "编辑客户"}>
+        <Modal onClose={cancelEdit} label={editingId === "new" ? "新建客户" : "编辑客户"}>
+          {(close) => (<>
             <h2>{editingId === "new" ? "新建客户" : "编辑客户"}</h2>
             <div className="flabel">客户名称</div>
             <input className="f" autoFocus placeholder="例如：林川工作室" value={form.name}
@@ -389,14 +280,14 @@ export default function Clients() {
               onChange={(e) => setForm({ ...form, note: e.target.value })} aria-label="备注" />
             {formErr && <div style={{ color: "var(--danger)", fontSize: 12.5, margin: "-6px 0 10px" }}>{formErr}</div>}
             <div className="modal-actions">
-              <button className="btn btn-outline btn-md" onClick={cancelEdit}>取消</button>
-              <button className="btn btn-primary btn-md" disabled={busy === "form"} onClick={() => void submitForm()}>
+              <Button onClick={close}>取消</Button>
+              <Button variant="primary" disabled={busy === "form"} onClick={() => void submitForm(close)}>
                 {busy === "form" ? <Spinner /> : null}
                 {editingId === "new" ? "创建客户" : "保存修改"}
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
+          </>)}
+        </Modal>
       )}
     </>
   );
