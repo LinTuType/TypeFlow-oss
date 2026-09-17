@@ -175,7 +175,13 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
   await page.waitForSelector(".font-card", { timeout: 15000 }).catch(() => {});
   check("字体以标本卡呈现", (await page.locator(".font-card").count()) >= 1);
-  check("卡片带真渲染字形", (await page.locator(".font-card .glyph").count()) >= 1);
+  // ⚠️ `.glyph` 是外层容器，永远存在 —— 原来这条断言等于没断言（所以漏掉了真机上的
+  //    「标本区显示无文件」缺陷）。真渲染的标志是 `.glyph-main`（拿到 FontFace 才渲染）
+  //    并且没有 `.glyph-failed` 占位。
+  await page.waitForSelector(".font-card .glyph-main", { timeout: 15000 }).catch(() => {});
+  check("卡片带真渲染字形（不是「无文件」占位）",
+    (await page.locator(".font-card .glyph-main").count()) >= 1
+    && (await page.locator(".font-card .glyph-failed").count()) === 0);
   const body1 = (await page.textContent("body")) ?? "";
   check("卡片标记 本机·版本已锁定（5.6 语义）", body1.includes("版本已锁定"));
   check("卡片有签发按钮（悬停操作区，图标化走 title 语义）",
@@ -736,6 +742,35 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const sidebarWho = (await page.locator(".sidebar-account-name").textContent()) ?? "";
   check("重新登录后侧栏显示显示名（不是邮箱）",
     sidebarWho.trim() === "E2E 测试工作室", sidebarWho.trim());
+
+  // 5b. 标本卡真渲染的回归线（2026-09-18 部署后真机检查在预发上抓到的缺陷）：
+  //     同一行会从「云端仅存哈希」变成「本机也有文件」，而合并后的行 key 不变
+  //     （都是 sha256 前 16 位）⇒ React 复用同一个组件实例。若 GlyphPreview 的 effect
+  //     不把 local 放进依赖，就永远不会重试，卡片一直停在「无文件」，刷新才恢复。
+  //     这里把那条时序在页面里复现：删掉本机本体（该行退化成云端行）→ 原样加回来。
+  await page.goto(PORTAL + "/fonts");
+  await page.waitForSelector(".font-card .glyph-main", { timeout: 20000 }).catch(() => {});
+  check("进字体库即出真字形", (await page.locator(".font-card .glyph-main").count()) >= 1
+    && (await page.locator(".font-card .glyph-failed").count()) === 0);
+
+  await page.hover(".font-card");
+  await page.locator(".font-card .mini button[title='删除字体']").first().click();
+  await page.waitForTimeout(200);
+  await page.locator("button[aria-label='确认删除字体']").first().click();
+  // 等状态真的翻过来再断言：删除要经过 removeLocalFont → load()（重取云端 + 本机）。
+  // 固定 sleep 在整条 test:all 并发跑时不够用（实测 900ms 会偶发假失败）。
+  await page.waitForSelector(".font-card .glyph-failed", { timeout: 15000 }).catch(() => {});
+  check("删除本机本体后该行退化成「云端仅存哈希」（此时画不出字形是正常的）",
+    ((await page.textContent("body")) ?? "").includes("云端仅存哈希")
+    && (await page.locator(".font-card .glyph-failed").count()) >= 1);
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "xingyun-Regular.ttf", mimeType: "font/ttf", buffer: fontBuf,
+  });
+  await page.waitForSelector(".font-card .glyph-main", { timeout: 25000 }).catch(() => {});
+  check("同哈希重新入库后标本区自行恢复（不靠刷新）",
+    (await page.locator(".font-card .glyph-main").count()) >= 1
+    && (await page.locator(".font-card .glyph-failed").count()) === 0);
 
   // 6. 无 JS 错误
   check("无页面 JS 错误", errors.length === 0, errors[0] ?? "");

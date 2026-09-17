@@ -5,8 +5,8 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `0630dc10c7b5d93f4eb5e82b80c7f1c65937ea70`（branch main，工作树干净） |
-| 导出时间 | 2026-09-17T16:31:54.034Z |
+| 主仓库 commit | `d80f600b10c93e1a4b731fda7f2a62eb90a75dd8`（branch main，工作树干净） |
+| 导出时间 | 2026-09-17T17:07:15.483Z |
 | 文件数 | 89 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
@@ -29,7 +29,7 @@
 | engine/tests/browser.ts | `ad825b3bacb552d0d62b1332a3a3e1a8b03e76a7f1c9228c57dd14e4390c8b07` |
 | engine/tests/compare.ts | `7626da16140f2b91f2b15d53718312c54eb0955ec20678a1c1cb796350da8723` |
 | engine/tests/e2e-local-signer.ts | `19c6fa63951ca87b494e091dd2bf84dad2ba51cc38e8f0f0006508de2f413cc0` |
-| engine/tests/e2e-portal.ts | `4a8e11165a67b2819375d88eb28077896084c90e7c2610fb59a953c155ea60c3` |
+| engine/tests/e2e-portal.ts | `4044ca91b3e81c3c781f1badac9acb6afdb5387a52ddd2026d18bf203bdcafdb` |
 | engine/tests/fixtures/hybudai-subset.ttf | `c7ba0d8fad728f232966ea122af60e37ace567fdf4de1297dc081d78ecc5dba1` |
 | engine/tests/fixtures/xingyun-subset.ttf | `dd46e1bcc01487cf4476f61464e6a0ecb8d154f049d9f1ad3086ae67673158d0` |
 | engine/tests/fontPath.ts | `d12c11503ee356466589089ac4f7bae90718dbd379282e74885011122910acb4` |
@@ -49,7 +49,7 @@
 | portal/src/components/AppShell.tsx | `00fa8958bd14881f85d54e423e14d2cee9d7eb6bca4f45f0334412cd0881820f` |
 | portal/src/components/ErrorBoundary.tsx | `3d71bed023439924bf6b59b9cbf018d5aa9c0d180e37f02fd7709d1afe10783c` |
 | portal/src/components/FontPicker.tsx | `64e7215e83874dcf388632270a938acf81a8ea85938fcf89e200f1e2a04c913c` |
-| portal/src/components/GlyphPreview.tsx | `4e57fbab5ac0ec8cf0f51a067d816f1a470631dc8b75ec1a3ac499deb282c8f8` |
+| portal/src/components/GlyphPreview.tsx | `0b6ba900455d69699b0524cd68b5890004d24c4f31835803e4e0b9092fe497b5` |
 | portal/src/components/Icon.tsx | `e5d5091c8b84f44c00854481622c2f44f28020022d6729a3b5080d958865c45c` |
 | portal/src/components/IssueResult.tsx | `b3eb631cfdb6a9219ab654a8c3849088e903339dd6f45ba1d74d9ca990377ed5` |
 | portal/src/components/LicensePaper.tsx | `77bb1211e6b1d751c40d6d1755131ae5c2f6808efaa35cd153c5714fa269250c` |
@@ -65,7 +65,7 @@
 | portal/src/lib/db.ts | `446ee737a9223a954cd47c23330983a0f111ff4fe94890274b283abe06889d30` |
 | portal/src/lib/delivery.ts | `0dd69d807906d64534a5dad78c43b978cb6078d2caf19671470ce61938e42025` |
 | portal/src/lib/embedWorker.ts | `84bccf5e3c12d4bb2556517af6e5886f77ba0a41f65c086611384489cf173c68` |
-| portal/src/lib/fontFace.ts | `b6442e04d4b5bb00e82374d6b7e1a465def3a25fac6ff89efd0855c422380c27` |
+| portal/src/lib/fontFace.ts | `783ffa870c3705d263083c0743cf3912e3131ada0c6f28944a73ee50c0742796` |
 | portal/src/lib/foundry.ts | `6ce4cee34e22f95ba30bb7a37f3ae4e320dda7108410dc087687df9cf9567961` |
 | portal/src/lib/fsFolder.ts | `e24b2ddecc9cf295b3d3ccc5db76a219715e37912ea603fc5a8ba0e8d7f31b31` |
 | portal/src/lib/issueFlow.ts | `136ec89ddd3b1bb959485937faf1e656c8b79b906bb979db627ddd74adb49452` |
@@ -84,7 +84,7 @@
 | portal/src/lib/zip.ts | `550ef7db0bea2658a65e4f314a3605d4ba10a45490a68a7d422860033fb3383a` |
 | portal/src/main.tsx | `d4f896b8431e2995744daea33b9566e37ac5ac8735d501aa8d8cda2bd413c624` |
 | portal/src/pages/Clients.tsx | `031507b564d6518031a76069f5fd833c2d235df6935a82f14eaebbf1d4311af9` |
-| portal/src/pages/Fonts.tsx | `951125bf43dae9676a364c0fd5e61013c426068d6b5d30580222613604eb3b7d` |
+| portal/src/pages/Fonts.tsx | `4d1d61fe05aa2c9b3ab1bd395a14b17d7fe42ac95c1c1fe32d3c1d3507bdddce` |
 | portal/src/pages/Issue.tsx | `489428499dbabbf8fc03047a046eadcc690191167797f13e786478257d59c852` |
 | portal/src/pages/Legal.tsx | `1d91147e648395aa8501bf8a591f06326ae68cf1bf91596328eef33f927916b9` |
 | portal/src/pages/Login.tsx | `ac807138ce13bb4ae0cae24df08b98d25664b996ef52fc47a5e8eca4ad94b3d4` |

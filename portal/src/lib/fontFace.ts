@@ -31,6 +31,10 @@ export function loadFontFace(id: string): Promise<string | null> {
   })();
 
   pending.set(id, task);
+  // ⚠️ 失败结果**不进缓存**：字体本体是「以后可能才出现」的（添加字体 / 恢复备份 /
+  // 换机导入），把 null 缓存下来会让同一页面里后续的加载永远拿到 null ——
+  // 症状是标本卡一直显示「无文件」，刷新才恢复。成功才值得记。
+  void task.then((f) => { if (!f) pending.delete(id); });
   return task;
 }
 

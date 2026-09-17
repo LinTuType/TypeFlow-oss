@@ -215,7 +215,7 @@ export default function Fonts() {
                   ].filter(Boolean).join(" · ")}
                 </span>
                 <div className="font-specimen">
-                  <GlyphPreview fontId={r.key} height={112} sample="永" sub="永和九年，岁在癸丑 · Ag 0123" />
+                  <GlyphPreview fontId={r.key} local={r.local} height={112} sample="永" sub="永和九年，岁在癸丑 · Ag 0123" />
                 </div>
                 <div className="font-foot">
                   <div style={{ minWidth: 0 }}>

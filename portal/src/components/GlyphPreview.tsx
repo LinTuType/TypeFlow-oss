@@ -9,6 +9,9 @@ import { loadFontFace } from "../lib/fontFace";
 
 interface Props {
   fontId: string;
+  /** 本机是否持有字体文件本体。显式传 false 就不去读库（云端仅存哈希的行没有文件可画）；
+   *  由 false 变 true 时必须重试加载 —— 见下面 effect 里的说明。 */
+  local?: boolean;
   /** 样张；默认「永」——中文排版常用试金石 */
   sample?: string;
   /** 附加的一行小字（拉丁/数字） */
@@ -18,7 +21,7 @@ interface Props {
 }
 
 export default function GlyphPreview({
-  fontId, sample = "永", sub = "Ag 0123", height = 72, className = "",
+  fontId, local, sample = "永", sub = "Ag 0123", height = 72, className = "",
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -40,16 +43,22 @@ export default function GlyphPreview({
     return () => io.disconnect();
   }, []);
 
+  // ⚠️ `local` 必须在依赖里。同一行可以从「云端仅存哈希」变成「本机也有文件」——
+  //    合并后的行 key 不变（都是 sha256 前 16 位），React 复用同一个组件实例，
+  //    依赖不变就不会重跑 effect ⇒ 卡片会一直停在「无文件」，刷新才恢复。
+  //    （真机检查在预发上抓到过：库里有同哈希的云端行时添加这款字体，标本区画不出来。）
   useEffect(() => {
     if (!visible) return;
+    if (local === false) { setFamily(null); setFailed(true); return; }
     let cancelled = false;
+    setFailed(false);
     void loadFontFace(fontId).then((f) => {
       if (cancelled) return;
       setFamily(f);
       setFailed(!f);
     });
     return () => { cancelled = true; };
-  }, [visible, fontId]);
+  }, [visible, fontId, local]);
 
   const style = family ? { fontFamily: `"${family}", "Songti SC", serif` } : undefined;
 
