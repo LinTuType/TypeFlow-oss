@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { apiAuth, clearToken, getTenant } from "../api/client";
+import { apiAuth, clearToken, clearTenant, clearEmailVerified, getTenant } from "../api/client";
 import { IconGauge, IconSpark, IconScanSearch, IconLayers, IconUser, IconFile, IconShield, IconSettings } from "./Icon";
 
 /**
@@ -56,6 +56,10 @@ export default function Sidebar({ theme, onToggleTheme, open }: SidebarProps) {
       /* 忽略：本地清干净即可 */
     }
     clearToken();
+    // 显示名与验证状态也要清：只清 token 的话，下一位登录者进来看见的是
+    // 上一位的用户名（侧栏问候语），共用设备的场景尤其明显
+    clearTenant();
+    clearEmailVerified();
     navigate("/login", { replace: true });
   };
 

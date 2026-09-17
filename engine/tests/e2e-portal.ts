@@ -18,6 +18,8 @@ import { launchChromium } from "./browser.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const PORTAL = "http://localhost:5173";
+/** worker（dev-server）直连地址：邮箱验证要在跑 UI 之外拿一封捕获到的邮件 */
+const WORKER = "http://127.0.0.1:8787";
 const FONT = "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf";
 
 const email = `e2e_${Date.now().toString(36)}@test.dev`;
@@ -83,6 +85,21 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   await page.click("button[type=submit]");
   await page.waitForURL("**/", { timeout: 10000 }).catch(() => {});
   check("注册并自动登录进入仪表盘", !page.url().endsWith("/login"));
+
+  // 1b. 邮箱验证（P1-8 起未验证会被挡在签发之外）。
+  //     本地 worker 的 dev-server 捕获邮件并开了一条 /api/__dev/mails 通道，
+  //     所以这里走的是真实链路：注册 → 收信 → 用令牌验证。
+  const mails = (await (await fetch(WORKER + "/api/__dev/mails")).json()) as
+    Array<{ to: string; html: string }>;
+  const verifyMail = mails.filter((m) => m.to === email).pop();
+  const verifyToken = (verifyMail?.html.match(/token=([A-Za-z0-9_-]+)/) ?? [])[1] ?? "";
+  check("注册即发出验证邮件（dev 邮件捕获）", verifyToken.length > 20);
+  const verifyRes = await fetch(WORKER + "/api/auth/verify-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: verifyToken }),
+  });
+  check("邮箱验证通过（签发闸门的前提）", verifyRes.status === 200, `HTTP ${verifyRes.status}`);
 
   // 2. 仪表盘骨架（原型 v9：lead 统计句 + 线性继续工作）
   await page.waitForSelector("text=资料库中有", { timeout: 8000 }).catch(() => {});

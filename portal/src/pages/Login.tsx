@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { Button } from "../components/ui";
 import { useNavigate } from "react-router-dom";
-import { apiAuth, setToken, setTenant } from "../api/client";
+import { apiAuth, setToken, setTenant, setEmailVerified } from "../api/client";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -38,6 +38,8 @@ export default function Login() {
       setToken(res.token);
       // 显示名以服务端为准（登录时表单里没有昵称，只有注册时才有；曾经因此退化成显示邮箱）
       setTenant(res.display_name || displayName.trim() || email);
+      // 邮箱验证状态：未验证会挡住签发，设置页据此给出提示与重发入口
+      setEmailVerified(res.email_verified === true);
       navigate("/", { replace: true });
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });

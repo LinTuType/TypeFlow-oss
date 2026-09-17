@@ -10,8 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ALGO_VERSION } from "@engine/webv1";
-import { apiAudit, apiAccount, apiFonts, apiOrders, type AuditEntry } from "../api/client";
-import { clearToken } from "../api/client";
+import { apiAudit, apiAccount, apiFonts, apiOrders, apiAuth, type AuditEntry } from "../api/client";
+import { clearToken, getEmailVerified, setEmailVerified } from "../api/client";
 import { listLocalFonts, removeLocalFont } from "../lib/localFonts";
 import { listCustomers, removeCustomer } from "../lib/localCustomers";
 import { listOrderNotes, clearAllOrderNotes } from "../lib/localOrders";
@@ -68,6 +68,11 @@ export default function Settings() {
   const [busy, setBusy] = useState(false);
   const [openItem, setOpenItem] = useState<ItemKey | null>(null);
   const close = () => setOpenItem(null);
+
+  // 账号：邮箱验证状态 + 重发验证邮件（未验证会被服务端挡在签发之外）
+  const [mailBusy, setMailBusy] = useState(false);
+  /** null = 本会话还不知道（没登录过）；登录时写进 sessionStorage，这里读一次 */
+  const [emailVerified, setEmailVerifiedState] = useState<boolean | null>(() => getEmailVerified());
 
   // 厂牌（授权方：抬头 / 落款 / 印章都读它，见 lib/foundry.ts）
   const [foundry, setFoundry] = useState<Foundry>({ name: "", short: "", site: "", seal: "round" });
@@ -406,6 +411,28 @@ export default function Settings() {
     }
   };
 
+  /**
+   * 重发验证邮件。未验证的账号会被服务端挡在签发之外，这里是用户唯一的出路，
+   * 所以除了限流提示，其余一律给明确结果。
+   */
+  const doResendVerification = async () => {
+    setMailBusy(true);
+    try {
+      const r = await apiAuth.resendVerification();
+      if (r.already_verified) {
+        setEmailVerified(true);
+        setEmailVerifiedState(true);
+        toast.info("该邮箱已验证", { detail: "不需要再验证" });
+      } else {
+        toast.success("验证邮件已发送", { detail: "请查收注册邮箱里的验证链接（也看看垃圾邮件箱）" });
+      }
+    } catch (e) {
+      toast.error("发送失败", { detail: (e as Error).message });
+    } finally {
+      setMailBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <>
@@ -634,6 +661,20 @@ export default function Settings() {
       case "account":
         return (
           <>
+            <Row label="邮箱验证">
+              {emailVerified === true
+                ? "已验证"
+                : emailVerified === false
+                  ? "未验证——签发前需要先验证邮箱"
+                  : "—"}
+            </Row>
+            <div className="btn-row">
+              <Button size="sm" disabled={mailBusy} busy={mailBusy}
+                onClick={() => void doResendVerification()}>
+                重新发送验证邮件
+              </Button>
+            </div>
+
             <Row label="条款">已确认《用户协议》与《隐私政策》 · <a href="/terms" target="_blank" rel="noreferrer">查看全文</a></Row>
 
             <BodyHead>数据可携</BodyHead>

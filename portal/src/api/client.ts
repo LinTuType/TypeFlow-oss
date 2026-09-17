@@ -8,6 +8,7 @@
 
 const TOKEN_KEY = "typeflow_token";
 const TENANT_KEY = "typeflow_tenant";   // 仅用于侧栏显示（谁登录了），不含任何敏感信息
+const VERIFIED_KEY = "typeflow_email_verified";  // 邮箱验证状态（设置页提示用，不参与鉴权）
 
 export function getToken(): string | null {
   return sessionStorage.getItem(TOKEN_KEY);
@@ -23,6 +24,21 @@ export function getTenant(): string | null {
 }
 export function setTenant(name: string): void {
   sessionStorage.setItem(TENANT_KEY, name);
+}
+/** 登出要连显示名一起清：否则下一位登录者进来看见的是上一位的用户名 */
+export function clearTenant(): void {
+  sessionStorage.removeItem(TENANT_KEY);
+}
+/** 邮箱验证状态；null = 本会话还不知道（没登录过） */
+export function getEmailVerified(): boolean | null {
+  const v = sessionStorage.getItem(VERIFIED_KEY);
+  return v === null ? null : v === "1";
+}
+export function setEmailVerified(v: boolean): void {
+  sessionStorage.setItem(VERIFIED_KEY, v ? "1" : "0");
+}
+export function clearEmailVerified(): void {
+  sessionStorage.removeItem(VERIFIED_KEY);
 }
 
 /** 通用请求：注入 token，统一解析 JSON；非 2xx 抛带 message 的 Error */
@@ -72,7 +88,9 @@ export interface OrderInfo {
   client_id?: string;
 }
 export interface FontInfo {
-  font_id: string; display_name: string;
+  font_id: string;
+  /** 云端自 2026-09-17 起不再保存字体名（历史行可能还有值）；显示名一律取本机字体库 */
+  display_name?: string;
   original_font_sha256: string;
 }
 
@@ -81,7 +99,7 @@ export const apiAuth = {
   register: (email: string, password: string, display_name: string, accept_terms: boolean) =>
     api<{ success: boolean; tenant_id: string }>("POST", "/api/register", { email, password, display_name, accept_terms }),
   login: (email: string, password: string) =>
-    api<{ success: boolean; token: string; tenant_id: string; display_name?: string; expires_at: number }>("POST", "/api/login", { email, password }),
+    api<{ success: boolean; token: string; tenant_id: string; display_name?: string; expires_at: number; email_verified?: boolean }>("POST", "/api/login", { email, password }),
   /** 吊销服务端会话（不只是清本地 token） */
   logout: () => api<{ success: boolean }>("POST", "/api/logout"),
   /**
@@ -96,6 +114,9 @@ export const apiAuth = {
   /** 邮箱验证（注册后邮件里的链接） */
   verifyEmail: (token: string) =>
     api<{ success: boolean; message: string }>("POST", "/api/auth/verify-email", { token }),
+  /** 重发验证邮件（需登录；未验证状态下签发会被 403 挡住，这里给用户出路） */
+  resendVerification: () =>
+    api<{ success: boolean; message?: string; already_verified?: boolean }>("POST", "/api/auth/resend-verification"),
 };
 
 /** 账号与合规：条款补签 / 数据导出 / 注销 */
@@ -126,7 +147,11 @@ export const apiAccount = {
 
 export const apiFonts = {
   list: () => api<{ fonts: FontInfo[] }>("GET", "/api/fonts"),
-  register: (d: { display_name: string; original_font_sha256: string }) =>
+  /**
+   * 登记字体哈希。**只发哈希**：字体名（= 文件名去扩展名，常含客户代号或未发布
+   * 信息）留在本机 —— 云端不保存它，字体列表用本机名字显示。
+   */
+  register: (d: { original_font_sha256: string }) =>
     api<{ success: boolean; font_id: string }>("POST", "/api/fonts/register", d),
 };
 

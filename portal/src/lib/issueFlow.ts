@@ -75,11 +75,9 @@ async function runIssueFlow(
   onOrderCreated?: (orderId: string) => void,
 ): Promise<IssueOutcome> {
   // 1. 登记哈希元数据（同哈希重复登记幂等）
+  // 只发哈希：字体名（= 文件名去扩展名，可能含客户代号）留在本机，云端不保存它
   onPhase?.("register");
-  const reg = await apiFonts.register({
-    display_name: font.name,
-    original_font_sha256: font.sha256,
-  });
+  const reg = await apiFonts.register({ original_font_sha256: font.sha256 });
 
   // 2. 创建订单（必须用云端返回的 font_id；云端只收 client_id，不收姓名与备注）
   onPhase?.("order");

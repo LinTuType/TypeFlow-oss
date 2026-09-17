@@ -43,8 +43,9 @@ function mergeRows(local: LocalMeta[], cloud: FontInfo[], orders: Array<{ font_i
     const sha = f.original_font_sha256 || "";
     const key = sha ? sha.slice(0, 16) : f.font_id.replace(/^font_/, "");
     map.set(key, {
-      // 云端不再存本机文件名与字形数（P1 瘦身）；这两个值只在本机字体库有
-      key, name: f.display_name, sha256: sha, filename: f.display_name,
+      // 云端只存哈希与不透明 ID：文件名、字形数、字体名都只在本机
+      // （display_name 是历史遗留列，2026-09-17 起不再写入）
+      key, name: f.display_name || "（云端仅存哈希）", sha256: sha, filename: f.display_name || "",
       size: 0, glyphCount: 0, local: false, cloud: true, cloudId: f.font_id, orderCount: 0,
       lastOrderAt: 0,
     });
@@ -140,15 +141,14 @@ export default function Fonts() {
     }
   };
 
-  /** 仅同步哈希（可选：只发 64 个字符，不发文件） */
+  /** 仅同步哈希（可选：只发 64 个字符的哈希，字体名与文件都留在本机） */
   const syncHash = async (row: Row) => {
     setBusy(row.key);
     try {
-      await apiFonts.register({
-        display_name: row.name,
-        original_font_sha256: row.sha256,
+      await apiFonts.register({ original_font_sha256: row.sha256 });
+      toast.success(`已同步哈希：${row.name}`, {
+        detail: "只发送了 64 个字符的 SHA-256——字体文件与字体名都留在本机",
       });
-      toast.success(`已同步哈希：${row.name}`, { detail: "只发送了 64 个字符的 SHA-256，字体文件仍在本机" });
       await load();
     } catch (e) {
       toast.error("同步哈希失败", { detail: (e as Error).message });
