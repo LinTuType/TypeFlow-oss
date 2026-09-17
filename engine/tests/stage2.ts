@@ -23,6 +23,7 @@ import { runSelection } from "../src/webv1.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
 import { overlapRatio, attackGlobalShift, attackPollute, attackSubset, attackStripName, attackCommonCharsSubset } from "./attack_util.js";
 import { loadAnchorPool } from "../src/pool.js";
+import { FONT_HYBUDAI, FONT_XINGYUN, resolveFont } from "./fontPath.js";
 
 const NODE_CRYPTO = createNodeCryptoProvider();
 
@@ -34,10 +35,7 @@ const MASTER_KEY = new Uint8Array(Buffer.from(
   "hex",
 ));
 const TENANT = "tenant-zhong";
-const FIXTURES = [
-  "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf",
-  "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/HYBuDaiXiongBasicW.ttf",
-];
+const FIXTURES = [resolveFont(FONT_XINGYUN), resolveFont(FONT_HYBUDAI)];
 
 // 结果汇总
 type Row = { attack: string; order: string; conf: number; votes: number; total: number; hit: boolean };

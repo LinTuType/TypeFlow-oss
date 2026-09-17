@@ -41,6 +41,14 @@ export async function listLocalFonts(): Promise<Array<Omit<LocalFont, "data">>> 
   return all.map(({ data, ...meta }) => meta);
 }
 
+/** 取某字体的元数据（不含文件本体）—— 显示名 / 交付文件名的唯一权威在本机 */
+export async function getLocalFont(id: string): Promise<Omit<LocalFont, "data"> | null> {
+  const font = await dbGet<LocalFont>(STORE.FONTS, id);
+  if (!font) return null;
+  const { data, ...meta } = font;
+  return meta;
+}
+
 /** 取某字体文件本体（订单签发时用） */
 export async function getLocalFontData(id: string): Promise<ArrayBuffer | null> {
   const font = await dbGet<LocalFont>(STORE.FONTS, id);

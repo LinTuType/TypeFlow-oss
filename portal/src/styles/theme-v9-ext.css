@@ -390,6 +390,38 @@ html.platform-win .money { font-family: var(--sans); font-size: 28px; font-weigh
    注意不能写成常驻 padding —— .acc-inner 是被裁切的那一层，border-box 下内边距会让它在收起时留下高度。 */
 .issue-field .acc-inner { padding: 0; transition: padding 240ms var(--ease), background 240ms var(--ease); }
 .issue-field .acc-panel.open .acc-inner { padding: 20px 0 30px; background: var(--subtle); }
+/* 两栏并排（2026-09-17）：授权范围/期限 一行，授权费用/备注 一行。
+   起因：加「授权期限」后，左列从页头下沿到签发按钮要 885px —— 900px 视口刚好压线贴底，
+   普通笔记本视口下签发按钮就落到屏幕外（用户报的就是这个）。拼行省下约 210px，
+   控件形态、字段内容、填写顺序都没动，只是排布变紧凑。
+   ⚠️ 两个展开体必须跨满两栏（grid-column: 1 / -1）：留在自己的半栏里只有约 160px，
+      授权范围条款那种长句会折成一片。 */
+.issue-pair { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; }
+.issue-pair > * { min-width: 0; }
+.issue-pair > .acc-panel { grid-column: 1 / -1; }
+@media (max-width: 720px) { .issue-pair { grid-template-columns: 1fr; } }
+/* 「自定义时长」的年 / 月两个输入 —— 与「或直接填写抬头」同款内联条带 */
+.term-custom { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--muted); }
+/* 数字右对齐：让「1」贴着「年」、「6」贴着「个月」，读起来就是「1 年 6 个月」 */
+.term-custom .line-input { width: 48px; flex: none; font-size: 15px; text-align: right; }
+/* .picker-form 里相邻 line-input 有 12px 上边距（那是给纵向堆叠的表单用的），
+   这里是横排，必须归零 —— 否则后一个输入会往下掉 12px。 */
+.picker-form .term-custom .line-input { margin-top: 0; }
+/* 备注 = 可选补充：默认只占一行的「添加备注」入口。
+   不做成 .pick 行（那会把一个"可选"字段撑成 85px 的必填体量），
+   而是与展开体里的「+ 新建客户」同族的轻入口；有内容时同一行变成「✎ 摘要」，
+   **高度不变** —— 填完备注不会让下面的签发按钮跳一下。 */
+.note-pick {
+  width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none;
+  text-align: left; display: flex; align-items: center; gap: 8px;
+  padding: 10px 20px; cursor: pointer; color: var(--muted);
+  font: 400 14px/1.6 var(--sans);
+  transition: color 140ms var(--ease), background 140ms var(--ease);
+}
+.note-pick.filled { color: var(--ink); }
+.note-pick:hover, .note-pick[aria-expanded="true"] { background: var(--subtle); }
+.note-pick svg { flex: none; }
+.note-pick-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 动作行 / 交付区 / 进度 / 日志：同一 24px 节奏
    顺序（2026-09-16 调整）：动作行 → **交付区**（签发完成 + 下载）→ 进度（完成后折成一行）→ 网络日志。
    交付区上移的原因：原来它排在五行进度之后，下载入口落在 900px 视口之外，要滚动才够得着。 */

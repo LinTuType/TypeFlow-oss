@@ -78,6 +78,47 @@ export function licenseTermText(d: Pick<LicenseData, "licenseStart" | "licenseEn
 }
 
 /**
+ * 授权期限 = **时长**（不是起止日期）。
+ *
+ * 为什么这么定（2026-09-17 用户口径）：填两个日历日期等于让用户自己算有效区间，
+ * 而且要先把「哪天开始」想清楚。实际上永远是「签发当天生效、持续 N 年 / N 个月」，
+ * 所以只让用户选时长，起止日期本机算出来写进文书。
+ *
+ * ⚠️ 起算点是**签发当天 0 点（本地时区）**，与 licenseTermText 的 sv-SE 本地格式化同一口径；
+ *    预览（未签发）与真正签发都调这里，两者算出同一天。
+ */
+export function startOfToday(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** 加 N 个月，并把「月末跨月」夹回当月最后一天（1/31 + 1 月 = 2/28 而不是 3/3） */
+export function addMonths(ms: number, months: number): number {
+  const d = new Date(ms);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d.getTime();
+}
+
+/** 时长（月）→ 文书的起止字段。null / ≤0 = 永久（返回空对象，两字段都缺省） */
+export function termForMonths(months: number | null | undefined): { licenseStart?: number; licenseEnd?: number } {
+  if (months == null || months <= 0) return {};
+  const start = startOfToday();
+  return { licenseStart: start, licenseEnd: addMonths(start, months) };
+}
+
+/** 时长的中文写法：18 → 「1 年 6 个月」。用于选择行与清单，日期另有 licenseTermText */
+export function durationText(months: number): string {
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return [y ? `${y} 年` : "", m ? `${m} 个月` : ""].filter(Boolean).join(" ") || "0 个月";
+}
+
+/**
  * **有序字段表 —— 两个出口的唯一数据源。**
  * 想加一个字段？只改这里；预览与交付的 PDF 会同时出现。
  * 订单号不在此表（它是文书编号，两个出口都放在标题下方的副行）。

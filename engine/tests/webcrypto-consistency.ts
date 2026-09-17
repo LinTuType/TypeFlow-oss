@@ -15,6 +15,7 @@ import { runSelection, bytesToHex } from "../src/webv1.js";
 import { loadAnchorPool } from "../src/pool.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
 import { createWebCryptoProvider } from "../src/crypto.js";
+import { FONT_HYBUDAI, FONT_XINGYUN, resolveFont } from "./fontPath.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../..");
@@ -22,10 +23,7 @@ const ROOT = join(__dirname, "../..");
 const KEY_HEX =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TENANT = "tenant-zhong";
-const FIXTURES = [
-  "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf",
-  "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/HYBuDaiXiongBasicW.ttf",
-];
+const FIXTURES = [resolveFont(FONT_XINGYUN), resolveFont(FONT_HYBUDAI)];
 
 (async () => {
   // 先做自检：WebCrypto 可用

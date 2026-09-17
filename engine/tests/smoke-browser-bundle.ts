@@ -10,6 +10,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { FONT_XINGYUN, resolveFont } from "./fontPath.js";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../..");
 const BUNDLE = join(ROOT, "dist", "typeflow-engine.browser.js");
@@ -26,8 +28,7 @@ const t = tf as {
 
 console.log("TypeFlow.version =", t.version);
 
-const fontPath =
-  "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf";
+const fontPath = resolveFont(FONT_XINGYUN);
 const orig = new Uint8Array(readFileSync(fontPath));
 const masterKey = new Uint8Array(Buffer.from("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "hex"));
 

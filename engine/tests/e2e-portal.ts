@@ -14,13 +14,14 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { launchChromium } from "./browser.js";
+import { FONT_XINGYUN, resolveFont } from "./fontPath.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const PORTAL = "http://localhost:5173";
 /** worker（dev-server）直连地址：邮箱验证要在跑 UI 之外拿一封捕获到的邮件 */
 const WORKER = "http://127.0.0.1:8787";
-const FONT = "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf";
+const FONT = resolveFont(FONT_XINGYUN);
 
 const email = `e2e_${Date.now().toString(36)}@test.dev`;
 
@@ -224,20 +225,70 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   await page.locator(".pick").nth(1).click();
   await page.waitForTimeout(300);
 
-  // 4a-3. 授权期限（2026-09-17）：默认永久；自定义期间实时写进文书「授权期限」行
+  // 4a-3. 授权期限（2026-09-17 改版）：**选「时长」，不是选日期**
+  //   起算点固定 = 签发当天，用户只回答「授权多久」；到期日本机算（lib/license.ts · termForMonths）。
+  //   交互：预设档点选即收起（与「授权范围」一致）；「自定义时长」留在展开态，填完按「确定」才生效。
   const termFact = () => (page.locator(".paper .fact").filter({ hasText: "授权期限" }).first().textContent()) ?? "";
+  const termPick = () => page.locator(".pick").nth(3);
+  const termPickText = async () => ((await termPick().textContent()) ?? "").trim();
+  const openTerm = async () => { await termPick().click(); await page.waitForTimeout(300); };
+  const day1 = new Date(); day1.setHours(0, 0, 0, 0);
+  const plusM = (n: number) => {
+    const x = new Date(day1); x.setDate(1); x.setMonth(x.getMonth() + n); x.setDate(day1.getDate());
+    return x.toLocaleDateString("sv-SE");
+  };
   check("文书授权期限默认永久", (await termFact()).includes("永久"));
-  await page.locator(".pick").nth(3).click();
-  await page.waitForTimeout(300);
-  await page.locator(".license-row:has-text('自定义期间')").click();
-  await page.fill('input[aria-label="授权开始日期"]', "2026-09-17");
-  await page.fill('input[aria-label="授权结束日期"]', "2027-09-16");
-  await page.waitForTimeout(200);
+  await openTerm();
+  check("期限档位是时长，且不再有日期输入",
+    (await page.locator(".acc-panel.open .license-row:has-text('1 年 6 个月')").count()) === 1
+    && (await page.locator(".acc-panel.open input[type=date]").count()) === 0);
+
+  // 预设档：点选即收起
+  await page.locator(".acc-panel.open .license-row:has-text('1 年 6 个月')").click();
+  await page.waitForTimeout(400);
+  check("期限选预设档后自动收起（与授权范围一致）", (await page.locator(".acc-panel.open").count()) === 0);
   const termRow = await termFact();
-  check("自定义期间写入文书授权期限行", termRow.includes("2026-09-17") && termRow.includes("2027-09-16"),
-    termRow.slice(0, 44));
-  await page.locator(".pick").nth(3).click();
+  check("选 1 年 6 个月 → 文书授权期限行写成起止日期",
+    termRow.includes(plusM(0)) && termRow.includes(plusM(18)), termRow.slice(0, 44));
+  check("选择行显示的是时长", (await termPickText()).includes("1 年 6 个月"));
+
+  // 自定义档：不收起，且「确定」之前不生效（先填 3 年，与上一档 1 年 6 个月可区分）
+  await openTerm();
+  await page.locator(".acc-panel.open .license-row:has-text('自定义时长')").click();
+  await page.waitForTimeout(400);
+  check("期限选自定义档后保持展开（要接着填年 / 月）",
+    (await page.locator(".acc-panel.open .term-custom").count()) === 1);
+  check("未填完时「确定」不可点",
+    await page.locator(".acc-panel.open .picker-form-actions button:has-text('确定')").isDisabled());
+  await page.fill('input[aria-label="授权年数"]', "3");
+  await page.fill('input[aria-label="授权月数"]', "");
+  await page.waitForTimeout(200);
+  check("「确定」之前不生效（选择行与文书都还是上一档）",
+    (await termPickText()).includes("1 年 6 个月") && (await termFact()).includes(plusM(18)));
+  await page.locator(".acc-panel.open .picker-form-actions button:has-text('确定')").click();
+  await page.waitForTimeout(400);
+  check("确定后收起且值生效（自定义时长同样算出起止日期）",
+    (await page.locator(".acc-panel.open").count()) === 0
+    && (await termPickText()).includes("3 年")
+    && (await termFact()).includes(plusM(36)), (await termFact()).slice(0, 44));
+
+  // 「取消」= 放弃这次编辑，已生效的档位不受影响
+  await openTerm();
+  await page.locator(".acc-panel.open .license-row:has-text('自定义时长')").click();
   await page.waitForTimeout(300);
+  await page.fill('input[aria-label="授权年数"]', "9");
+  await page.locator(".acc-panel.open .picker-form-actions button:has-text('取消')").click();
+  await page.waitForTimeout(400);
+  check("「取消」放弃编辑，期限回到原来那一档（仍是 3 年）",
+    (await page.locator(".acc-panel.open").count()) === 0
+    && (await termPickText()).includes("3 年")
+    && (await termFact()).includes(plusM(36)));
+
+  // 复位成永久，后面的签发与交付包断言不受期限影响
+  await openTerm();
+  await page.locator(".acc-panel.open .license-row:has-text('永久')").click();
+  await page.waitForTimeout(400);
+  check("改回永久后文书期限行回到永久", (await termFact()).includes("永久"));
 
   await page.fill('input[aria-label="授权价格"]', "1,299");
   await page.click("button:has-text('生成签发文件')");
@@ -261,20 +312,23 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
       return Math.abs(slot.getBoundingClientRect().bottom - sub.getBoundingClientRect().bottom) <= 1;
     }));
 
+  // 命名口径（2026-09-18 用户口径）：交付的水印字体叫「原版字体名_订单号.ttf」——
+  // 字体名在前，客户在自己的字体文件夹里认得出是哪款字、哪一单。
+  const orderId = ((await page.locator(".issue-done-id").first().textContent()) ?? "").trim();
   const dlBtn = page.locator("button:has-text('下载水印字体')").first();
   if (await dlBtn.count()) {
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 20000 }).catch(() => null),
       dlBtn.click(),
     ]);
-    check("水印字体可下载", !!download && download.suggestedFilename().includes("_watermarked.ttf"),
+    check("水印字体可下载，且命名为「字体名_订单号.ttf」",
+      !!download && download.suggestedFilename() === `xingyun-Regular_${orderId}.ttf`,
       download ? download.suggestedFilename() : "未触发下载");
   } else {
-    check("水印字体可下载", false, "未找到下载按钮");
+    check("水印字体可下载，且命名为「字体名_订单号.ttf」", false, "未找到下载按钮");
   }
 
   // 4b. 交付包（批次 4）：水印字体 + 授权书 + 使用说明 + 指纹，一次下载齐全
-  const orderId = ((await page.locator(".issue-done-id").first().textContent()) ?? "").trim();
   const zipBtn = page.locator("button:has-text('下载交付包')").first();
   let zipFiles: Map<string, Buffer> | null = null;
   let firstTtf: Buffer | null = null;   // 首次签发的交付包内水印字体（重算要逐字节比对）
@@ -293,7 +347,7 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   check("交付包含四个文件（字体 / 授权书 / 使用说明 / 指纹）",
     !!zipFiles && zipFiles.size === 4, zipFiles ? [...zipFiles.keys()].join(" · ") : "解包失败");
   if (zipFiles) {
-    const ttf = zipFiles.get(`${orderId}_watermarked.ttf`);
+    const ttf = zipFiles.get(`xingyun-Regular_${orderId}.ttf`);
     firstTtf = ttf ?? null;
     const usg = zipFiles.get("使用说明.txt")?.toString("utf8") ?? "";
     const lic = zipFiles.get("字体授权书.html")?.toString("utf8") ?? "";
@@ -301,7 +355,8 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     const shownSha = (((await page.locator(".issue-done-sha span").nth(3).textContent()) ?? "").trim()).replace("…", "");
     check("交付包内水印字体与页面回执哈希一致", !!ttf && sha256(ttf).startsWith(shownSha),
       ttf ? sha256(ttf).slice(0, 24) : "包内没有水印字体");
-    check("使用说明含订单号与存 PDF 指引", usg.includes(orderId) && usg.includes("另存为 PDF"));
+    check("使用说明含订单号、核验命令对上包内文件名与存 PDF 指引",
+      usg.includes(orderId) && usg.includes("另存为 PDF") && usg.includes(`xingyun-Regular_${orderId}.ttf`));
     check("授权书 HTML 含订单号与标题", lic.includes(orderId) && lic.includes("字体授权书"));
     check("授权书抬头是用户自己的厂牌（不是平台名）",
       lic.includes(`class="licensor">${LICENSOR_NAME}`) && !lic.includes("文镇 TypeFlow · 本地签发"));
@@ -310,7 +365,7 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
       lic.includes(`<i>${LICENSOR_SHORT}</i>`) && lic.includes("<i>印</i>"));
     check("指纹清单含双哈希与订单号", fp.includes("原版字体 SHA-256") && fp.includes("水印字体 SHA-256") && fp.includes(orderId));
   } else {
-    for (const l of ["交付包内水印字体与页面回执哈希一致", "使用说明含订单号与存 PDF 指引",
+    for (const l of ["交付包内水印字体与页面回执哈希一致", "使用说明含订单号、核验命令对上包内文件名与存 PDF 指引",
       "授权书 HTML 含订单号与标题", "指纹清单含双哈希与订单号"]) check(l, false, "解包失败");
   }
 
@@ -325,6 +380,11 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   check("筛选「已作废」→ 空态", ((await page.textContent("body")) ?? "").includes("还没有订单"));
   await page.locator(".choice button:has-text('全部')").click();
   await page.waitForTimeout(200);
+
+  // 字体列必须显示本机字体名：云端自 2026-09-17 起不存字体名（display_name 写空串），
+  // 任何 `order.font_name || order.font_id` 的写法都会退化成 `font_9ea2d420…`（本会话修过一版）。
+  const fontCell = (((await page.locator(`.trow:has-text('${orderId}')`).locator("span").nth(2).textContent()) ?? "")).trim();
+  check("订单表字体列显示本机字体名（不是 sha16）", fontCell === "xingyun-Regular", fontCell);
 
   await page.click(`.trow:has-text('${orderId}')`);
   await page.waitForTimeout(400);
@@ -345,16 +405,16 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     check("重新生成的交付包可下载", false, "未找到按钮");
   }
   if (regenZip) {
-    const ttf2 = regenZip.get(`${orderId}_watermarked.ttf`);
+    const ttf2 = regenZip.get(`xingyun-Regular_${orderId}.ttf`);
     const lic2 = regenZip.get("字体授权书.html")?.toString("utf8") ?? "";
     check("重算结果与首次逐字节一致（本地嵌入是确定性的）",
       !!ttf2 && !!firstTtf && sha256(ttf2) === sha256(firstTtf),
       ttf2 ? sha256(ttf2).slice(0, 16) : "包内没有水印字体");
-    check("重算出的授权书与原单一致（订单号 + 授权方抬头）",
-      lic2.includes(orderId) && lic2.includes(LICENSOR_NAME));
+    check("重算出的授权书与原单一致（订单号 + 授权方抬头 + 字体名取本机）",
+      lic2.includes(orderId) && lic2.includes(LICENSOR_NAME) && lic2.includes("xingyun-Regular"));
   } else {
     for (const l of ["重算结果与首次逐字节一致（本地嵌入是确定性的）",
-      "重算出的授权书与原单一致（订单号 + 授权方抬头）"]) check(l, false, "解包失败");
+      "重算出的授权书与原单一致（订单号 + 授权方抬头 + 字体名取本机）"]) check(l, false, "解包失败");
   }
 
   // §2.5 F-4 + 5.5：客户名是跳转链接 → 直接打开客户详情卡（订单号 / 金额本地拼接）
@@ -383,6 +443,13 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   check("订单模态框 Esc 可关", (await page.locator(".modal-back").count()) === 0);
   const bodyOv = await page.evaluate(() => document.body.style.overflow);
   check("模态框关闭后背景滚动解锁", bodyOv === "", `overflow=${bodyOv || "(空)"}`);
+
+  // 概览「最近订单」行：又是另一份字体名映射（不是订单页那份），同样只能读本机字体库
+  await page.goto(PORTAL + "/");
+  await page.waitForSelector(".recent-row", { timeout: 15000 }).catch(() => {});
+  const recentTitle = (((await page.locator(".recent-row .order-title").first().textContent()) ?? "")).trim();
+  check("概览最近订单行显示本机字体名（不是 sha16）", recentTitle.includes("xingyun-Regular"),
+    recentTitle.slice(0, 48));
 
   // 4b-3. 追溯：选取对齐签发页（pick 行就地展开）+ 自证自动匹配 + 报告落本机历史
   await page.goto(PORTAL + "/trace");

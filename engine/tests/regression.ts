@@ -21,10 +21,11 @@ import {
   readLocaOffsets,
   type GlyphData,
 } from "../src/ttf/glyf.js";
+import { FONT_XINGYUN, resolveFont } from "./fontPath.js";
 
 const NODE_CRYPTO = createNodeCryptoProvider();
 
-const FONT = "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf";
+const FONT = resolveFont(FONT_XINGYUN);
 const MASTER_KEY = new Uint8Array(
   Buffer.from("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "hex"),
 );
@@ -219,7 +220,10 @@ function testParseBounds(): void {
     assertSupportedTtf(real);
     mapSize = parseCmap(parseSfnt(real)).map.size;
   } catch { realOk = false; }
-  check("真实字体仍正常解析（校验未误伤）", realOk && mapSize > 5000, `cmap 映射 ${mapSize} 条`);
+  // 阈值刻意取小：CI 用仓库内子集样本（477 条映射），本机用全量样本（9311 条）。
+  // 这条要证的是「上界校验没把真实字体误拒」，不是字体有多大 ——
+  // 写死 >5000 会退化成"只有全量样本才过得了"，CI 上必然假失败。
+  check("真实字体仍正常解析（校验未误伤）", realOk && mapSize >= 200, `cmap 映射 ${mapSize} 条`);
 }
 
 // ───────── P1-9 / P1-11：重复签发保护与 sfnt 目录参数 ─────────

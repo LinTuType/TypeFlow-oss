@@ -20,22 +20,17 @@ import { fileURLToPath } from "node:url";
 import { runSelection } from "../src/webv1.js";
 import { loadAnchorPool } from "../src/pool.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
+import { FONT_HYBUDAI, FONT_XINGYUN, resolveFont } from "./fontPath.js";
 
 const NODE_CRYPTO = createNodeCryptoProvider();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../..");
 
-// 测试用字体：桌面版测试目录自带的真实 TTF（只读引用，不复制）
+// 测试用字体：本机默认取父仓库的完整样本，CI 取仓库内子集样本（见 fontPath.ts）
 const FIXTURES = [
-  {
-    name: "xingyun-Regular.ttf",
-    path: "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf",
-  },
-  {
-    name: "HYBuDaiXiongBasicW.ttf",
-    path: "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/HYBuDaiXiongBasicW.ttf",
-  },
+  { name: FONT_XINGYUN, path: resolveFont(FONT_XINGYUN) },
+  { name: FONT_HYBUDAI, path: resolveFont(FONT_HYBUDAI) },
 ];
 
 // 测试向量：多租户 × 多订单 × 多后缀

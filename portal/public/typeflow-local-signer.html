@@ -202,6 +202,7 @@ const dropZone = $('drop');
 
 let fontBytes = null;
 let fontSha = null;        // 所选字体的 SHA-256（hex）
+let fontFileName = '';     // 所选原版字体名（去扩展名）—— 交付文件名 = 它 + 订单号
 let recipe = null;
 let lastOutput = null;
 
@@ -253,6 +254,7 @@ fontFile.addEventListener('change', async () => {
   if (!f) return;
   fontBytes = new Uint8Array(await f.arrayBuffer());
   fontSha = await sha256Hex(fontBytes);
+  fontFileName = f.name.replace(/[.](ttf|otf|ttc)$/i, '');   // 命名口径与门户 lib/delivery.ts 一致
   $('fontInfo').textContent = `${f.name}  (${(fontBytes.length/1024/1024).toFixed(1)} MB)`;
   dropZone.classList.add('filled');
   renderChecks();
@@ -316,12 +318,25 @@ goBtn.addEventListener('click', async () => {
   }
 });
 
+/**
+ * 交付文件名 = 原版字体名 + 订单号（与门户 lib/delivery.ts 同一口径，字体名在前）。
+ * 净化掉路径分隔符与 Windows 非法字符 —— 字体名来自用户自己的文件名。
+ * ⚠️ 反斜杠用 fromCharCode(92) 表示：本文件整段 HTML 是模板字符串，直接写会被转义吃掉。
+ */
+function wmFontName() {
+  const bad = ['/', ':', '*', '?', '"', '<', '>', '|', String.fromCharCode(92)];
+  let base = fontFileName || 'font';
+  for (const ch of bad) base = base.split(ch).join('_');
+  base = base.split(' ').filter(Boolean).join(' ').slice(0, 80) || 'font';
+  return base + '_' + recipe.order_id + '.ttf';
+}
+
 dlFont.addEventListener('click', () => {
   if (!lastOutput) return;
   const blob = new Blob([lastOutput.bytes], { type: 'font/ttf' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${recipe.order_id}_watermarked.ttf`;
+  a.download = wmFontName();
   a.click();
   URL.revokeObjectURL(a.href);
   setStatus('已触发下载。字体文件始终未离开本机，后续回到门户在订单里回传哈希即可完成归档。', 'ok');

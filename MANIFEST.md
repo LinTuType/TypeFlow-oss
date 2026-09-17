@@ -5,9 +5,9 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `93738d66062c0b3fad5989e279d51000ab354819`（branch main，工作树干净） |
-| 导出时间 | 2026-09-17T14:42:52.993Z |
-| 文件数 | 87 |
+| 主仓库 commit | `0630dc10c7b5d93f4eb5e82b80c7f1c65937ea70`（branch main，工作树干净） |
+| 导出时间 | 2026-09-17T16:31:54.034Z |
+| 文件数 | 89 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
 
@@ -27,21 +27,23 @@
 | engine/src/webv1.ts | `527a502d9c0de462eef0c51aa4d4d36be875124639bfd8c2b6962cd8f4c46e74` |
 | engine/tests/attack_util.ts | `25004489ba64550216f48218d36dad42c3a4cff8f3715f164c54cab0b497dc2f` |
 | engine/tests/browser.ts | `ad825b3bacb552d0d62b1332a3a3e1a8b03e76a7f1c9228c57dd14e4390c8b07` |
-| engine/tests/compare.ts | `d39e2c3b09b880c69c7f2515f1a6e52ebe06418075e281b559472e7ac3c0770c` |
-| engine/tests/e2e-local-signer.ts | `8459b77c42de7bbdbda76f2d67d0ce765047f3a267be82a365e3b652648c1955` |
-| engine/tests/e2e-portal.ts | `9b3e973a962429cbdd305d3f1864738890d7884d17462c280c258fefb9dd274a` |
-| engine/tests/e2e-trace.ts | `0c052421647e8b537639f189148d4f0ddb5e6f6ecd70da8a11c5a8b059154c1a` |
-| engine/tests/recipe-mode.ts | `180c6d9d71f30215f276ad00ab06366906f9515acf7ee1449e771fa4d619b3ef` |
-| engine/tests/regression.ts | `e89743e9fe4dadaea5240736abaf4663590cecd0cd1f531d07e29d9202d68759` |
-| engine/tests/smoke-browser-bundle.ts | `5e69abac011363150bd2f4121ec097e1bf5a857fa59aa404c52a48c26a6d54bc` |
-| engine/tests/stage1.ts | `4329a1ab9f046870c288f11e4a3f2a494cd7591fd11c2bb05f23626c2ad2623b` |
-| engine/tests/stage2.ts | `a77c7f59253efaa1c43812b21ee9c9aa2ab8dce61b9f104bf77e114bb593906e` |
-| engine/tests/webcrypto-consistency.ts | `e56f9152c5969154f39b70ba8aac3000b01bbf7a3ceded4ac2dc5c5f440a73e4` |
+| engine/tests/compare.ts | `7626da16140f2b91f2b15d53718312c54eb0955ec20678a1c1cb796350da8723` |
+| engine/tests/e2e-local-signer.ts | `19c6fa63951ca87b494e091dd2bf84dad2ba51cc38e8f0f0006508de2f413cc0` |
+| engine/tests/e2e-portal.ts | `4a8e11165a67b2819375d88eb28077896084c90e7c2610fb59a953c155ea60c3` |
+| engine/tests/fixtures/hybudai-subset.ttf | `c7ba0d8fad728f232966ea122af60e37ace567fdf4de1297dc081d78ecc5dba1` |
+| engine/tests/fixtures/xingyun-subset.ttf | `dd46e1bcc01487cf4476f61464e6a0ecb8d154f049d9f1ad3086ae67673158d0` |
+| engine/tests/fontPath.ts | `d12c11503ee356466589089ac4f7bae90718dbd379282e74885011122910acb4` |
+| engine/tests/recipe-mode.ts | `8d691daac2f67d7a9c3e0b112077cad442d92d64c746945df8941b8be7daf538` |
+| engine/tests/regression.ts | `5709cc139af7baa23d7ed0c48dc4df14fc5d8e399d25e4a701dc4f12321b9602` |
+| engine/tests/smoke-browser-bundle.ts | `4d0ea122b10fb5a98e52b0610330f3f462c94914ba54feb9668955149fc71085` |
+| engine/tests/stage1.ts | `91df6c54a3f60fea81806f529fa84910fc93022f16015a223feb7480572432bd` |
+| engine/tests/stage2.ts | `ea9edfeba2a014a8a2845e1d52ad792685dd04734ca95a025b22e85e4e0c371a` |
+| engine/tests/webcrypto-consistency.ts | `d28ca9870a20a9dbff6c332e9a7895bc64d074a8e0d222996242ebdf15f77ebc` |
 | package.json | `e75dbcad4253556bd34894676064bd79eed0c2aa7a8a8497b3eb7867762e222f` |
 | portal/index.html | `07ba8d3957b09dcfde42d873c36afa03645aa4e4f76b371bec724af05d8b3eed` |
 | portal/package.json | `eb905dd65eb551e2bb0fc6e88f86916d1f0aa5ad90eeafa275cb1064dc0e8121` |
 | portal/public/logo.svg | `e676bfb35b7130e39b3a8a93a6de024c3e8a6dc214001a8b3fdec6455d5c979e` |
-| portal/public/typeflow-local-signer.html | `022181d3c87b46cf2faac6473dbaaa28e201440f7231f2996f90eca7b30dde0b` |
+| portal/public/typeflow-local-signer.html | `77a5020fa52f7e5e60f38394a6216d7e0c708b260460cc47ca45e17849864b3a` |
 | portal/src/App.tsx | `b3dbd03d949556f41e153eb4fb10b01610433aaf4e9a0bf39799d9090f2bb6b6` |
 | portal/src/api/client.ts | `1981e322003d36784dcc5fb68ea32eb39da52b72f0206a36d72921cfac91cb88` |
 | portal/src/components/AppShell.tsx | `00fa8958bd14881f85d54e423e14d2cee9d7eb6bca4f45f0334412cd0881820f` |
@@ -49,7 +51,7 @@
 | portal/src/components/FontPicker.tsx | `64e7215e83874dcf388632270a938acf81a8ea85938fcf89e200f1e2a04c913c` |
 | portal/src/components/GlyphPreview.tsx | `4e57fbab5ac0ec8cf0f51a067d816f1a470631dc8b75ec1a3ac499deb282c8f8` |
 | portal/src/components/Icon.tsx | `e5d5091c8b84f44c00854481622c2f44f28020022d6729a3b5080d958865c45c` |
-| portal/src/components/IssueResult.tsx | `fc36fd8bf11df64e15a762d6fdd3ca53c0eb85753fcf834dac08fa62dba63939` |
+| portal/src/components/IssueResult.tsx | `b3eb631cfdb6a9219ab654a8c3849088e903339dd6f45ba1d74d9ca990377ed5` |
 | portal/src/components/LicensePaper.tsx | `77bb1211e6b1d751c40d6d1755131ae5c2f6808efaa35cd153c5714fa269250c` |
 | portal/src/components/NetLog.tsx | `cd3a350221cf7626f70d517e23cd77dd5a8ba8f7b3b308b90307162b4afcfdf4` |
 | portal/src/components/PageStage.tsx | `09f3c35eae01b2edc55a92f84f2752cc19c70ee265aaff94cd760ec91c7dff51` |
@@ -61,16 +63,16 @@
 | portal/src/lib/backup.ts | `3c15f5bccde9c486025bc12ff3c5248aeaa8aa14978c3605a2e1e4dc5310c920` |
 | portal/src/lib/backupFolder.ts | `553e48cd82fb1479f1b4ac53374cdcadcebb6628a76ecd75887c2cb343ab693d` |
 | portal/src/lib/db.ts | `446ee737a9223a954cd47c23330983a0f111ff4fe94890274b283abe06889d30` |
-| portal/src/lib/delivery.ts | `b2e15d75acc2d73cdc172086f40c3c796c5f63a71a56da44b893f2c4032b7228` |
+| portal/src/lib/delivery.ts | `0dd69d807906d64534a5dad78c43b978cb6078d2caf19671470ce61938e42025` |
 | portal/src/lib/embedWorker.ts | `84bccf5e3c12d4bb2556517af6e5886f77ba0a41f65c086611384489cf173c68` |
 | portal/src/lib/fontFace.ts | `b6442e04d4b5bb00e82374d6b7e1a465def3a25fac6ff89efd0855c422380c27` |
 | portal/src/lib/foundry.ts | `6ce4cee34e22f95ba30bb7a37f3ae4e320dda7108410dc087687df9cf9567961` |
 | portal/src/lib/fsFolder.ts | `e24b2ddecc9cf295b3d3ccc5db76a219715e37912ea603fc5a8ba0e8d7f31b31` |
 | portal/src/lib/issueFlow.ts | `136ec89ddd3b1bb959485937faf1e656c8b79b906bb979db627ddd74adb49452` |
 | portal/src/lib/issuer.ts | `aabdf8d3e768c3eb1f0199a25e2ee88ec9771741299196585d64f1c829562f46` |
-| portal/src/lib/license.ts | `f6f0621ff6ad067ad72491f2c85cfd7444c4363751fb8a462613070446c2f9b4` |
+| portal/src/lib/license.ts | `a9c3e72860c8d8a432eae7f64dca47bc6303b623cfac6d6bb05bf14dde1f5811` |
 | portal/src/lib/localCustomers.ts | `702dec4cd91bf60288414e312e22d498b9d12d561ba0e48d497ae259f7c40b8b` |
-| portal/src/lib/localFonts.ts | `c4816a0121a3164a30fd1e8ffe0cf0305881e1a8b8cd39d58cdda88f1b4d4c0e` |
+| portal/src/lib/localFonts.ts | `e2cba514bc08b9fabc88afa2d811b40d22ac04fc09755a9f30918a2a44eedd4a` |
 | portal/src/lib/localOrders.ts | `63434134b0c4a96b8daca20a37d05af85fc5686944686d00143db54a54d6eb20` |
 | portal/src/lib/platform.ts | `e7d5288ded7ab4d90fadf44731f4bc7283fc344c13ff4c0384e7f082f283eae9` |
 | portal/src/lib/schemes.ts | `f00fdc70a2df6bd0e5cfb1ff6b9186354aa412f28956ee30fe2db221a30c1058` |
@@ -83,17 +85,17 @@
 | portal/src/main.tsx | `d4f896b8431e2995744daea33b9566e37ac5ac8735d501aa8d8cda2bd413c624` |
 | portal/src/pages/Clients.tsx | `031507b564d6518031a76069f5fd833c2d235df6935a82f14eaebbf1d4311af9` |
 | portal/src/pages/Fonts.tsx | `951125bf43dae9676a364c0fd5e61013c426068d6b5d30580222613604eb3b7d` |
-| portal/src/pages/Issue.tsx | `4d043f1aae211268f813fd361c5ede46e77834249f77ee2862c7c1c73cac1c17` |
+| portal/src/pages/Issue.tsx | `489428499dbabbf8fc03047a046eadcc690191167797f13e786478257d59c852` |
 | portal/src/pages/Legal.tsx | `1d91147e648395aa8501bf8a591f06326ae68cf1bf91596328eef33f927916b9` |
 | portal/src/pages/Login.tsx | `ac807138ce13bb4ae0cae24df08b98d25664b996ef52fc47a5e8eca4ad94b3d4` |
-| portal/src/pages/Orders.tsx | `88a1bec7686c9795a08e3ed663b778d9715ff409ffbca7811c5ca99a2ee44405` |
-| portal/src/pages/Overview.tsx | `a2ccad15c1f7d4e22548ff9beaed59eb86d56be77ec56570354ea6a04ba43dc6` |
+| portal/src/pages/Orders.tsx | `7d052fd628966704c109e65a1e87e2a967642e5d1d1d30ecf4a4f3876c9c4091` |
+| portal/src/pages/Overview.tsx | `ce4f4d7e8318709705d7f8ed4aa02aec1d7dde4ab3b40c6986716bf67b19a0c2` |
 | portal/src/pages/ResetPassword.tsx | `450b3f93103fd0e84d49b31df0e783ac5a2db2abc5293ad62c65adc38adc835b` |
 | portal/src/pages/Security.tsx | `422143fddf8d1f163e8ee4228ba702a79b759ac3b0232634d3a0806c0dbfbbef` |
 | portal/src/pages/Settings.tsx | `fb7965f17be25e26b5254edc607789a4f39ffa72395bb1ab8c24ef01153e5320` |
 | portal/src/pages/Trace.tsx | `c979d4ed74b0308579b805a5e1971c850372cf5d675cf3b770b7fc9a19308e8d` |
 | portal/src/pages/VerifyEmail.tsx | `c2a653dd5a815366fca36c9bc89deb8ccc4600a1d18ee41c02b7ced0afc9ee12` |
-| portal/src/styles/theme-v9-ext.css | `8af9135b62313f1aa92f21cc398afc5fccfe8e2a36361cc3531d7c324e8d27f9` |
+| portal/src/styles/theme-v9-ext.css | `007b4fa73dbbcbd9dba9468c1ef285f70b8616b9fda742f7e75270648971b193` |
 | portal/src/styles/theme-v9.css | `23cbfaa179099f46d4e84e5ccc3e37fd0e3fe66988d7e04d870e401f4dc407fa` |
 | portal/src/vite-env.d.ts | `65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5` |
 | portal/tsconfig.json | `8f2c000dd69ebc121b15206fe406135410a3e2217c19c48bc5350e71301d5596` |

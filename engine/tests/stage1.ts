@@ -22,6 +22,7 @@ import { createNodeCryptoProvider } from "../src/crypto.node.js";
 import { parseSfnt, parseCmap } from "../src/ttf/reader.js";
 import { rebuildFont } from "../src/ttf/writer.js";
 import { readGlyphRaw } from "../src/ttf/glyf.js";
+import { FONT_HYBUDAI, FONT_XINGYUN, resolveFont } from "./fontPath.js";
 
 const NODE_CRYPTO = createNodeCryptoProvider();
 
@@ -34,10 +35,7 @@ const MASTER_KEY_HEX =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TENANT = "tenant-zhong";
 
-const FIXTURES = [
-  "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf",
-  "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/HYBuDaiXiongBasicW.ttf",
-];
+const FIXTURES = [resolveFont(FONT_XINGYUN), resolveFont(FONT_HYBUDAI)];
 
 function glyphXMinFromRaw(raw: ReturnType<typeof parseSfnt>, gid: number): number | null {
   const glyfOff = raw.tableOffsets.get("glyf")!;

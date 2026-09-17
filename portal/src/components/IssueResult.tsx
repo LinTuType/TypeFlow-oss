@@ -15,7 +15,7 @@
 import { useMemo } from "react";
 import { downloadBytes } from "../lib/issuer";
 import { buildLicenseHtml, printLicenseHtml } from "../lib/license";
-import { buildDeliveryZip, licenseDataOf, type DeliveryMeta } from "../lib/delivery";
+import { buildDeliveryZip, licenseDataOf, watermarkedFontName, type DeliveryMeta } from "../lib/delivery";
 import { readFoundry } from "../lib/foundry";
 import type { IssueOutcome } from "../lib/issueFlow";
 
@@ -33,7 +33,8 @@ function useDelivery(outcome: IssueOutcome) {
   };
   return {
     sign,
-    downloadFont: () => downloadBytes(sign.fontBytes, `${orderId}_watermarked.ttf`, "font/ttf"),
+    /** 文件名 = 原版字体名 + 订单号（与交付包内那份逐字一致，见 lib/delivery.ts） */
+    downloadFont: () => downloadBytes(sign.fontBytes, watermarkedFontName(fontName, orderId), "font/ttf"),
     /** 交付包：水印字体 + 授权书 + 使用说明 + 指纹，一次下载齐全 */
     downloadPackage: () => downloadBytes(buildDeliveryZip(meta), `${orderId}_交付包.zip`, "application/zip"),
     printLicense: () => printLicenseHtml(buildLicenseHtml(licenseDataOf(meta))),

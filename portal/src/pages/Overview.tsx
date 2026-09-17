@@ -16,6 +16,7 @@ import { apiDashboard, apiOrders, type OrderInfo } from "../api/client";
 import { getTenant } from "../api/client";
 import { listCustomers } from "../lib/localCustomers";
 import { listOrderNotes } from "../lib/localOrders";
+import { listLocalFonts } from "../lib/localFonts";
 import { schemeLabel } from "../lib/schemes";
 import { toast } from "../lib/toast";
 import { PageHeader, Spinner } from "../components/ui";
@@ -54,17 +55,22 @@ export default function Overview() {
   } | null>(null);
   const [orders, setOrders] = useState<OrderInfo[]>([]);
   const [clientNameById, setClientNameById] = useState<Map<string, string>>(new Map());
+  const [fontNameById, setFontNameById] = useState<Map<string, string>>(new Map());
   const [licenseTypeByOrderId, setLicenseTypeByOrderId] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const who = getTenant() ?? "灵兔字形";
 
   const load = async () => {
     try {
-      const [s, o, cs, notes] = await Promise.all([apiDashboard.stats(), apiOrders.list(), listCustomers(), listOrderNotes()]);
+      const [s, o, cs, notes, fonts] = await Promise.all([
+        apiDashboard.stats(), apiOrders.list(), listCustomers(), listOrderNotes(), listLocalFonts(),
+      ]);
       setStats(s);
       setOrders(o.orders ?? []);
       setClientNameById(new Map(cs.map((c) => [c.id, c.name])));
       setLicenseTypeByOrderId(new Map(notes.filter((n) => n.licenseType).map((n) => [n.orderId, n.licenseType as string])));
+      // 字体名取本机字体库（云端自 2026-09-17 起不存字体名 ⇒ order.font_name 恒为空）
+      setFontNameById(new Map(fonts.map((f) => [f.id, f.name])));
     } catch (e) {
       toast.error("统计加载失败", { detail: (e as Error).message });
     } finally {
@@ -134,7 +140,7 @@ export default function Overview() {
                   <Link key={o.order_id} to="/orders" className="recent-row">
                     <span>
                       <span className="order-id">{o.order_id}</span>
-                      <span className="order-title">{o.font_name || o.font_id} · {o.client_id ? clientNameById.get(o.client_id) ?? "未识别客户" : "未关联客户"}</span>
+                      <span className="order-title">{fontNameById.get(o.font_id.replace(/^font_/, "")) || o.font_name || o.font_id} · {o.client_id ? clientNameById.get(o.client_id) ?? "未识别客户" : "未关联客户"}</span>
                     </span>
                     <span className="meta">{schemeLabel(licenseTypeByOrderId.get(o.order_id) ?? "")}</span>
                     <span className={`pill pill-${STATUS_PILL[o.status] ?? "neutral"}`}>

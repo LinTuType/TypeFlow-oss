@@ -15,12 +15,13 @@ import { fileURLToPath } from "node:url";
 import { runSelection } from "../src/webv1.js";
 import { loadAnchorPool } from "../src/pool.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
+import { FONT_XINGYUN, resolveFont } from "./fontPath.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../..");
 
 const KEY_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-const FONT = "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf";
+const FONT = resolveFont(FONT_XINGYUN);
 const TENANT = "tenant-demo";
 const ORDER = "ORD-DEMO-001";
 

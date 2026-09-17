@@ -8,14 +8,15 @@
  */
 
 import { launchChromium } from "./browser.js";
+import { FONT_XINGYUN, resolveFont } from "./fontPath.js";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "../..");
 const HTML = join(ROOT, "dist", "typeflow-local-signer.html");
-const FONT = "/Users/junzhong/Documents/AI Programs/font_watermark_tool/TypeFlow/tests/xingyun-Regular.ttf";
+const FONT = resolveFont(FONT_XINGYUN);
 
 const RECIPE = {
   // 配方模式：只含云端派生的订单种子（模拟云端 prepare 返回），不含主密钥
@@ -43,9 +44,11 @@ const RECIPE = {
   await page.waitForTimeout(300);
 
   // 注入字体文件（绕过 file input 限制）
+  // 显示名用实际样本的 basename：写死的话 CI 用子集样本时，界面显示的名字
+  // 会和真正注入的内容对不上（日志里也会误导）
   const fontBuf = readFileSync(FONT);
   await page.setInputFiles("#font", {
-    name: "xingyun-Regular.ttf",
+    name: basename(FONT),
     mimeType: "font/ttf",
     buffer: fontBuf,
   });
@@ -71,8 +74,11 @@ const RECIPE = {
   const dropOk = !!chooser;
   if (chooser) await chooser.setFiles(FONT);
   await page.waitForTimeout(300);
+  // 断言对象是「选中后显示的是刚选的那个文件」，别写死文件名 ——
+  // 写死的话 CI 用子集样本（xingyun-subset.ttf）时这条会假失败。
+  const expectFontName = basename(FONT);
   const dropFilledOk = (await page.locator(".drop.filled").count()) > 0
-    && ((await page.textContent("#fontInfo")) ?? "").includes("xingyun-Regular.ttf");
+    && ((await page.textContent("#fontInfo")) ?? "").includes(expectFontName);
 
   console.log("── 阶段 3 E2E ──");
   console.log("  Name 256 含 order_id:", nameOk ? "✅" : "❌");

@@ -31,6 +31,35 @@ export interface DeliveryMeta {
   watermarkedFont: Uint8Array;
 }
 
+/**
+ * 水印字体的交付文件名 = **原版字体名 + 订单号**（用户口径 2026-09-18）。
+ *
+ * 为什么字体名放前面：拿到文件的先是客户。客户自己的字体文件夹里躺着几十个 ttf，
+ * 「订单号_watermarked」对他是无意义的串；字体名在前，一眼认出是哪款字、哪一单，
+ * 按名排序时同一款字的多单也自动聚在一起。订单号仍在名里 —— 追溯与核对不受影响。
+ *
+ * ⚠️ 这里是**唯一**的命名点：单文件下载、交付包内条目、使用说明里的核验命令
+ * 都调它。改口径只改这一处（两个出口对不上，客户按说明书敲命令就会对不上文件名）。
+ */
+export function watermarkedFontName(fontName: string, orderId: string): string {
+  return `${safeFileNamePart(fontName)}_${orderId}.ttf`;
+}
+
+/**
+ * 文件名净化：字体名来自用户上传的文件名，什么都可能有。
+ * 包内路径里出现「/」会被解压工具当成目录，Windows 下 `\ : * ? " < > |` 直接解压失败，
+ * 首尾的空格/点在部分系统上会被悄悄吃掉（导致说明里的文件名与实际不符）。
+ */
+export function safeFileNamePart(name: string): string {
+  const cleaned = (name || "")
+    .replace(/[\\/:*?"<>|]/g, "_")     // 路径分隔符 + Windows 非法字符
+    .replace(/\s+/g, " ")
+    .replace(/^[.\s]+/, "")
+    .replace(/[.\s]+$/, "")
+    .slice(0, 80);                     // 抗超长文件名（字体名可能是整串代号）
+  return cleaned || "字体";
+}
+
 /** 组装授权书数据（交付包里的 HTML 与屏幕预览吃同一份） */
 export function licenseDataOf(meta: DeliveryMeta): LicenseData {
   return {
@@ -50,6 +79,7 @@ export function licenseDataOf(meta: DeliveryMeta): LicenseData {
 
 /** 使用说明（纯文本，客户/客户的设计师直接能读） */
 export function usageText(meta: DeliveryMeta): string {
+  const fontFile = watermarkedFontName(meta.fontName, meta.orderId);
   return `文镇 TypeFlow 交付包 · 使用说明
 ========================================
 
@@ -63,7 +93,7 @@ ${meta.amount ? `授权费用：¥ ${meta.amount}\n` : ""}签发时间：${meta.
 
 包含文件
 ----------------------------------------
-1. ${meta.orderId}_watermarked.ttf   已嵌入唯一水印的字体文件（安装即用）
+1. ${fontFile}   已嵌入唯一水印的字体文件（安装即用）
 2. 字体授权书.html                   授权书，可打印或另存为 PDF
 3. 使用说明.txt                      本文件
 4. 签发指纹.txt                      哈希清单，用于事后核对与追溯
@@ -84,9 +114,9 @@ ${meta.amount ? `授权费用：¥ ${meta.amount}\n` : ""}签发时间：${meta.
 核对指纹（可选）
 ----------------------------------------
 在终端执行（macOS / Linux）：
-  shasum -a 256 ${meta.orderId}_watermarked.ttf
+  shasum -a 256 "${fontFile}"
 Windows PowerShell：
-  Get-FileHash .\\${meta.orderId}_watermarked.ttf -Algorithm SHA256
+  Get-FileHash ".\\${fontFile}" -Algorithm SHA256
 结果应与「签发指纹.txt」中的水印字体 SHA-256 完全一致。
 `;
 }
@@ -117,13 +147,14 @@ ${meta.amount ? `授权费用          ¥ ${meta.amount}\n` : ""}签发时间   
 
 /**
  * 组装交付包字节。
- * 文件名带订单号，避免多个订单的包混在一起时分不清。
+ * 包内水印字体走 watermarkedFontName（字体名 + 订单号），多个订单混在一起时既能
+ * 按字体归类、也能靠订单号分清；包的压缩文件本身用订单号命名。
  */
 export function buildDeliveryZip(meta: DeliveryMeta): Uint8Array {
   const licenseHtml = buildLicenseHtml(licenseDataOf(meta));
   const enc = new TextEncoder();
   const entries: ZipEntry[] = [
-    { name: `${meta.orderId}_watermarked.ttf`, data: meta.watermarkedFont },
+    { name: watermarkedFontName(meta.fontName, meta.orderId), data: meta.watermarkedFont },
     { name: "字体授权书.html", data: enc.encode(licenseHtml) },
     { name: "使用说明.txt", data: enc.encode(usageText(meta)) },
     { name: "签发指纹.txt", data: enc.encode(fingerprintText(meta)) },

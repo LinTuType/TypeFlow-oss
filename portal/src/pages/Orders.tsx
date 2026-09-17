@@ -11,7 +11,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { apiOrders, apiTrace, type OrderInfo } from "../api/client";
 import { listCustomers } from "../lib/localCustomers";
 import { listOrderNotes, type LocalOrderNote } from "../lib/localOrders";
-import { getLocalFontData, sha256Of } from "../lib/localFonts";
+import { getLocalFont, getLocalFontData, listLocalFonts, sha256Of } from "../lib/localFonts";
 import { localEmbed, downloadBytes } from "../lib/issuer";
 import { buildDeliveryZip } from "../lib/delivery";
 import { readFoundry } from "../lib/foundry";
@@ -58,6 +58,7 @@ const termText = (note: LocalOrderNote | undefined): string => {
 export default function Orders() {
   const [orders, setOrders] = useState<OrderInfo[]>([]);
   const [clientNameById, setClientNameById] = useState<Map<string, string>>(new Map());
+  const [fontNameById, setFontNameById] = useState<Map<string, string>>(new Map());
   const [localByOrderId, setLocalByOrderId] = useState<Map<string, LocalOrderNote>>(new Map());
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -67,10 +68,14 @@ export default function Orders() {
 
   const load = useCallback(async () => {
     try {
-      const [o, cs, notes] = await Promise.all([apiOrders.list(), listCustomers(), listOrderNotes()]);
+      // 字体名一并取本机字体库（云端不存字体名，见下方 fontName 的说明）
+      const [o, cs, notes, fonts] = await Promise.all([
+        apiOrders.list(), listCustomers(), listOrderNotes(), listLocalFonts(),
+      ]);
       setOrders(o.orders ?? []);
       setClientNameById(new Map(cs.map((c) => [c.id, c.name])));
       setLocalByOrderId(new Map(notes.map((n) => [n.orderId, n])));
+      setFontNameById(new Map(fonts.map((f) => [f.id, f.name])));
     } catch (e) {
       toast.error("订单加载失败", { detail: (e as Error).message });
     } finally {
@@ -86,6 +91,15 @@ export default function Orders() {
     return cid ? (clientNameById.get(cid) ?? "未识别客户") : "—";
   };
 
+  /**
+   * 字体名解析：**一律取本机字体库**。
+   * 云端自 2026-09-17 起不再保存字体名（`display_name` 写空串）⇒ `order.font_name` 只会是空，
+   * 直接用它会把这列显示成一串 sha16（`font_9ea2d420…`），客户和自己都认不出是哪款字。
+   * 本机没有这份字体（换过设备 / 未添加）时，才退一步用云端登记的旧值，最后才是 font_id。
+   */
+  const fontName = (o: OrderInfo) =>
+    fontNameById.get(o.font_id.replace(/^font_/, "")) || o.font_name || o.font_id;
+
   /** 本地过滤：状态 + 订单号 / 字体 / 客户名 */
   const filtered = useMemo(() => {
     let list = orders;
@@ -96,10 +110,10 @@ export default function Orders() {
     return list.filter((o) =>
       o.order_id.toLowerCase().includes(k) ||
       o.font_id.toLowerCase().includes(k) ||
-      (o.font_name ?? "").toLowerCase().includes(k) ||
+      fontName(o).toLowerCase().includes(k) ||
       clientName(o).toLowerCase().includes(k),
     );
-  }, [orders, q, statusFilter, clientNameById, localByOrderId]);
+  }, [orders, q, statusFilter, clientNameById, localByOrderId, fontNameById]);
 
   const selOrder = orders.find((o) => o.order_id === sel) ?? null;
   const selNote = selOrder ? localByOrderId.get(selOrder.order_id)?.note : undefined;
@@ -163,7 +177,7 @@ export default function Orders() {
     try {
       // ① 本机原版字体：本机 id = 云端 font_<sha16> 去掉前缀
       const localId = order.font_id.replace(/^font_/, "");
-      const data = await getLocalFontData(localId);
+      const [localFont, data] = await Promise.all([getLocalFont(localId), getLocalFontData(localId)]);
       if (!data) {
         throw new Error(
           `这台设备上没有该订单的原版字体（${localId.slice(0, 10)}…）。` +
@@ -185,7 +199,10 @@ export default function Orders() {
       const name = clientName(order);
       const zip = buildDeliveryZip({
         orderId: order.order_id,
-        fontName: order.font_name || localId,
+        // 字体名一律取本机字体库：云端自 2026-09-17 起不再保存字体名（display_name 写空串），
+        // order.font_name 只会是空 —— 回落哈希前缀会让交付文件名与授权书上的「授权字体」
+        // 变成一串 sha16，客户看不懂，也对不上当初送去的那份。
+        fontName: localFont?.name || order.font_name || localId,
         clientRef: name === "—" || name === "未识别客户" ? "" : name,
         licenseType: noteOf(order)?.licenseType ?? "enterprise",
         licensor: readFoundry(),
@@ -261,7 +278,7 @@ export default function Orders() {
               onClick={() => setSel(o.order_id)} role="button" tabIndex={0}>
               <span className="mono" style={{ fontSize: 12 }}>{o.order_id}</span>
               <span>{clientName(o)}</span>
-              <span className="ellipsis">{o.font_name || o.font_id}</span>
+              <span className="ellipsis" title={fontName(o)}>{fontName(o)}</span>
               <span style={{ fontSize: 12 }}>{schemeName(noteOf(o))}</span>
               <span style={{ fontSize: 12 }}>{orderAmount(o) ? <>¥ {orderAmount(o)}</> : <span style={{ color: "var(--muted)" }}>—</span>}</span>
               <span className={`status ${STATUS_TONE[o.status] ?? ""}`}>
@@ -287,7 +304,7 @@ export default function Orders() {
             <div className="kv"><div className="kv-k">字体</div>
               <div className="kv-v">
                 <button className="kv-link" onClick={() => navigate("/fonts")}
-                  title="到字体库查看">{selOrder.font_name || "未命名"}</button>
+                  title="到字体库查看">{fontNameById.get(selOrder.font_id.replace(/^font_/, "")) || selOrder.font_name || "未命名"}</button>
                 <span className="mono" style={{ display: "block", fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{selOrder.font_id}</span>
               </div>
             </div>
