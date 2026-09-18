@@ -18,12 +18,13 @@ import securityPageSrc from "../pages/Security.tsx?raw";
 /** 开源仓库（公开镜像，内容由 scripts/export-oss.mjs 从主仓库导出：engine + portal + 自证清单） */
 export const REPO_URL = "https://github.com/LinTuType/TypeFlow-oss";
 
-/** 开源范围（决策点 3，2026-09-16 拍板）：engine + portal公开，签发服务 worker 暂不公开 */
+/** 开源范围（决策点 3，2026-09-16 拍板）：engine + portal 公开，签发服务 worker 暂不公开。
+    why 只写「是什么」，不写「没有什么」（口径：清单既然是穷举，不写就是没有）。 */
 export const OSS_SCOPE: Array<{ area: string; open: boolean; why: string }> = [
-  { area: "engine/（水印引擎）", open: true, why: "水印算法与嵌入逻辑，信任页「源码自证」即以其实时哈希为证" },
-  { area: "portal/（门户前端）", open: true, why: "上传行为均在前端实现，代码公开即可核验无隐蔽传输" },
-  { area: "自证清单 MANIFEST", open: true, why: "记录导出时的主仓库提交与逐文件 SHA-256，供与部署产物比对" },
-  { area: "worker/（配方签发服务）", open: false, why: "服务端代码，持有密钥与租户数据；是否开源另行决策，不影响前述可核验链路" },
+  { area: "engine/（水印引擎）", open: true, why: "水印算法与嵌入逻辑" },
+  { area: "portal/（门户前端）", open: true, why: "上传行为都在前端" },
+  { area: "自证清单 MANIFEST", open: true, why: "导出时的提交与逐文件 SHA-256" },
+  { area: "worker/（配方签发服务）", open: false, why: "持有密钥与租户数据" },
 ];
 
 /** 离线签发工具（可选下载，非主流程）：由 make-local-signer.mjs 产出到 portal/public */
@@ -41,33 +42,34 @@ export interface SourceProof {
   expectNet?: string;
 }
 
-/** 参与自证的源码：三个"本来就不该有网络调用"的纯净文件 + 一个"唯一允许出网"的文件 */
+/** 参与自证的源码：三个"本来就不该有网络调用"的纯净文件 + 两个"仅限预期出网"的文件。
+    title 上屏（每条一句人话）；expectNet 不上屏，只用于判定扫到网络调用时算"预期"还是 FAIL。 */
 export const PROOF_SOURCES: SourceProof[] = [
   {
     path: "portal/src/api/client.ts",
-    title: "门户 API 客户端：业务请求的唯一出口——所有 /api 调用都从这里发出",
+    title: "API 客户端：业务请求的唯一出口，只调本服务 /api/*",
     source: apiClientSrc,
-    expectNet: "仅调用本服务 /api/*（账号、哈希、订单、配方）——对应数据流向图的通道 ①",
+    expectNet: "仅调用本服务 /api/*（账号、哈希、订单、配方）——对应流向图的通道 ①",
   },
   {
     path: "portal/src/pages/Security.tsx",
-    title: "本页源码：算「本页自证」哈希时会请求一次本页自身地址，不携带任何用户数据",
+    title: "本页源码：算本页哈希时请求一次本页自身地址",
     source: securityPageSrc,
-    expectNet: "仅 fetch 本页自身地址（/security），用于实时计算本页哈希——请求里没有查询参数、没有用户数据",
+    expectNet: "仅 fetch 本页自身地址（/security）——请求里没有查询参数、没有用户数据",
   },
   {
     path: "engine/src/embed.ts",
-    title: "水印嵌入主流程：读字体字节 → 改字形坐标 → 写回，纯计算",
+    title: "水印嵌入：读字体字节 → 改字形坐标 → 写回",
     source: embedSrc,
   },
   {
     path: "portal/src/lib/localFonts.ts",
-    title: "本地字体库：字体文件存进 IndexedDB，只有读写，没有出口",
+    title: "本地字体库：字体存进 IndexedDB",
     source: localFontsSrc,
   },
   {
     path: "portal/src/lib/issuer.ts",
-    title: "一体签发：取本地字体 + 云端配方 → 本机生成水印字体",
+    title: "一体签发：本地字体 + 云端配方 → 本机生成水印字体",
     source: issuerSrc,
   },
 ];
@@ -93,22 +95,6 @@ export async function sha256Text(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** 出网清单：这些是唯一会离开本机的数据 */
-/**
- * 出网清单只列**与字体和业务相关的数据**（字体 / 订单）——这是本页的议题；
- * 账号服务（登录、验证邮件等）与字体无关，见《隐私政策》，不在这里混列。
- * 云端订单不挂任何客户标识：哪笔订单是谁的，只有你本机的订单关联知道。
- */
-export const OUTBOUND_FIELDS: Array<{ name: string; detail: string }> = [
-  { name: "字体数据", detail: "字体名称与 SHA-256 哈希（用于登记与追溯比对，不可逆推出字体本身）" },
-  { name: "订单信息", detail: "订单号、授权方案与水印产出哈希（用于签发归档，不含客户标识与授权费用）" },
-];
-
-/** 不出网清单 */
-export const NEVER_OUTBOUND: string[] = [
-  "字体文件本体（.ttf / .otf）",
-  "字形轮廓与坐标数据",
-  "嵌入过程与中间产物",
-  "客户资料（姓名、备注、授权费用）——仅存本机，云端不记录",
-  "备份文件——仅写入你绑定的本地文件夹，不经任何服务器",
-];
+/* 出网 / 不出网清单已从页面上撤下（2026-09-18）：这两件事现在由「数据在哪里」图承担 ——
+   两框逐项列出各侧存了什么，中间两条通道标出跨界的数据。清单文案不再单独维护，
+   口径以图的标注为准（出网 = 字体哈希 · 订单号 · 水印哈希；入网 = 订单配方 32 字节种子）。 */

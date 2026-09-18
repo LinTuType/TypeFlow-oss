@@ -536,12 +536,33 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const fontMeta = (await page.textContent("body")) ?? "";
   check("字体卡显示签发次数与最近一单", /1 次签发 · 最近 \d{1,2}\/\d{1,2}/.test(fontMeta));
 
-  // 4d. 安全与信任：数据流向图 + 源码自证 + 本页自证（原型结构）
+  // 4d. 安全与信任：两张图（数据在哪里 / 一次签发做了什么）+ 自证表
+  //     2026-09-18 改版：出网 / 不出网文字清单撤下，改由图承担（图上标注即口径）；
+  //     自证区从「纵排 drow 全摊开」收成「一行摘要 + 就地展开」。
   await page.click(".navlink:has-text('安全与信任')");
   await page.waitForTimeout(1200);
   const secBody = (await page.textContent("body")) ?? "";
-  check("安全页数据流向图已渲染", (await page.locator("svg[aria-label*='数据流向']").count()) > 0);
-  check("安全页含出网/不出网清单", secBody.includes("出网数据项") && secBody.includes("本地专属数据"));
+  check("安全页三块都在（签发流程 / 追溯流程 / 数据在哪里）",
+    (await page.locator("svg[aria-labelledby*='flow-title']").count()) === 1
+    && (await page.locator("svg[aria-labelledby*='trace-title']").count()) === 1
+    && (await page.locator(".block-title").count()) === 3);
+  check("区块标题上屏且图有可访问名称（title / desc 成对）",
+    secBody.includes("一次签发做了什么") && secBody.includes("一次追溯做了什么")
+    && secBody.includes("数据在哪里")
+    && (await page.locator("svg[aria-labelledby*='flow-title'] > title#flow-title").count()) === 1
+    && (await page.locator("svg[aria-labelledby*='trace-title'] > desc#trace-desc").count()) === 1);
+  check("签发流程五步与产出都在",
+    secBody.includes("登记哈希") && secBody.includes("创建订单") && secBody.includes("取云端配方")
+    && secBody.includes("本地嵌入") && secBody.includes("提交回执")
+    && secBody.includes("水印字体 · 授权书"));
+  check("追溯流程五步与产出都在",
+    secBody.includes("导入可疑字体") && secBody.includes("读取自证") && secBody.includes("匹配本机原版")
+    && secBody.includes("拉取候选配方") && secBody.includes("比对水印信号")
+    && secBody.includes("鉴定书"));
+  // 出网 / 入网口径：清单撤下后，由「数据在哪里」按本机 / 云端分列承担
+  check("数据在哪里按本机 / 云端分列",
+    secBody.includes("本机浏览器") && secBody.includes("文镇云端")
+    && secBody.includes("字体哈希 · 订单号") && secBody.includes("主密钥"));
   const scanOk = await page.locator("text=✓ 无网络调用").count();
   check("源码自证扫描通过（3 个纯净文件零网络调用）", scanOk === 3, `实际 ${scanOk} 个`);
   // 修复"自证清单漏掉真正发请求的文件"：api/client.ts 在列，并如实标注为唯一出网通道
@@ -549,12 +570,12 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   check("出网文件如实标注（client.ts 仅 /api · 本页仅自证请求）",
     netMark === 2 && secBody.includes("api/client.ts") && secBody.includes("pages/Security.tsx"),
     `标注 ${netMark} 个`);
-  // 出网清单口径（用户拍板）：只列三类业务数据（字体 / 客户 / 订单），账号与邮件服务不混列（见隐私政策）
-  check("出网清单只列业务数据（字体 / 订单；客户标识也不出网）",
-    secBody.includes("字体数据") && secBody.includes("订单信息")
-    && !secBody.includes("客户信息") && !secBody.includes("账号数据") && !secBody.includes("阿里云"));
-  check("本地专属清单含最强承诺（客户资料本机 / 备注与费用不出网）",
-    secBody.includes("客户资料（姓名、备注、授权费用）") && secBody.includes("仅存本机，云端不记录"));
+  check("折叠态摘要给出结论（源文件已哈希 · 算法版本 · 本页自证）",
+    secBody.includes("个源文件已实时哈希，无异常网络调用")
+    && secBody.includes("算法版本") && secBody.includes("本页 SHA-256"));
+  // 撤清单后的口径守卫：业务数据只说字体与订单，不混账号，也不点名云厂商
+  check("安全页不出现禁用词（客户信息 / 账号数据 / 云厂商名）",
+    !secBody.includes("客户信息") && !secBody.includes("账号数据") && !secBody.includes("阿里云"));
   // 修复"开源范围表唯一渲染点在死组件里"：决策点 3 的结果现在真的上屏
   check("开源范围上屏（引擎/门户公开 · worker 私有）",
     secBody.includes("开源范围") && secBody.includes("worker/（配方签发服务）") && secBody.includes("✕ 私有"));

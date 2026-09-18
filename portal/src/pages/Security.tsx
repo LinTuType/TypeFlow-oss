@@ -1,19 +1,29 @@
 /**
- * 安全与信任 —— 原型 v9 结构：
- *   页头 → lead 摘要句 → 数据流向 SVG → OUTBOUND/NEVER 双栏清单 →
- *   drow 自证行（算法版本 / 源码自证 / 本页自证 / 离线兜底）→ 动作
+ * 安全与信任 —— 两张流程 + 文字分列 + 自证表：
+ *   页头 →「一次签发做了什么」→「一次追溯做了什么」→「数据在哪里」→
+ *   自证表（一行摘要 + 就地展开：算法版本 / 源码自证 / 本页自证 / 开源范围）→ 动作
+ *
+ * 两张流程图的底色 = 数据在哪一侧（跨界白底 / 本机灰底），且互为镜像：
+ *   签发 —— 五步里只有「本地嵌入」在本机；追溯 —— 五步里只有「拉取候选配方」跨界。
+ *
+ * 「数据在哪里」不再画图，改为按本机 / 云端分列的文字；出网 / 不出网清单已撤下（2026-09-18），
+ * 出网 / 入网口径以这两处为准（出网 = 字体哈希 · 订单号 · 水印哈希；入网 = 订单配方 32 字节种子）。
  *
  * 所有证据实时计算：引擎源文件（?raw 导入）实时 SHA-256 + 网络调用扫描，
  * 本页自证 fetch(location.href) 现场算哈希——不依赖预置文案。
+ * 折叠态的结论句同样由扫描结果现场判定，不是写死的宣称。
+ *
+ * ⚠️ 源码 <pre> 必须保持条件渲染（点了才进 DOM）：
+ *    Security.tsx 自身的源码里就有 verdict 那几个字串，常挂载会被 e2e 的 text= 计数捞到。
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ALGO_VERSION } from "@engine/webv1";
 import {
   PROOF_SOURCES, scanNetworkCalls, sha256Text,
-  REPO_URL, OFFLINE_TOOL_PATH, OUTBOUND_FIELDS, NEVER_OUTBOUND, OSS_SCOPE,
+  REPO_URL, OFFLINE_TOOL_PATH, OSS_SCOPE,
 } from "../lib/trust";
-import { Button, InfoI, PageHeader, Spinner } from "../components/ui";
+import { AccordionPanel, Button, PageHeader, Spinner } from "../components/ui";
 
 /** 本页自证：打开页面时实时计算（file:// 下诚实降级） */
 async function computeSelfHash(): Promise<string> {
@@ -30,6 +40,7 @@ export default function Security() {
   const [selfHash, setSelfHash] = useState<string | null>(null);
   const [hashes, setHashes] = useState<Record<string, string>>({});
   const [openPath, setOpenPath] = useState<string | null>(null);
+  const [proofOpen, setProofOpen] = useState(false);
 
   const runSelfCheck = () => {
     setSelfHash(null);
@@ -43,145 +54,242 @@ export default function Security() {
 
   useEffect(runSelfCheck, []);
 
+  /** 折叠态结论句的依据：有几个文件扫出了「非预期」的网络调用（预期出网的除外） */
+  const unexpected = useMemo(
+    () => PROOF_SOURCES.filter((p) => !scanNetworkCalls(p.source).clean && !p.expectNet).length,
+    [],
+  );
+
   return (
     <>
       <PageHeader
         title="安全与信任"
-        sub="本页说明数据边界、算法版本与自证方式。下列声明均可独立核验，证据在页面打开时实时计算。"
+        sub="数据边界、算法版本与自证方式。每项声明都能自行核验，证据在打开页面时算出。"
       />
 
-      {/* 数据流向图（原型 v9 重绘版式，色值取当前规格 token） */}
-      <svg viewBox="0 0 680 264" style={{ width: "100%", height: "auto", display: "block", marginTop: 40 }}
-        role="img" aria-label="数据流向：字体文件只在本机，出网仅字体哈希与订单信息">
-        <defs>
-          <marker id="arr-ok" markerWidth="7" markerHeight="7" refX="6" refY="2.5" orient="auto">
-            <path d="M0,0 L6,2.5 L0,5 z" fill="#102d50" />
-          </marker>
-        </defs>
-        {/* 左：本机 */}
-        <text x="40" y="40" style={{ font: "600 15px var(--serif)" }} fill="#34322e">本机浏览器</text>
-        <rect x="24" y="56" width="208" height="184" rx="8" fill="#f5f3ef" stroke="#ebe8e2" strokeWidth="1" />
-        <text x="48" y="92" fontSize="12" fill="#4b4a47">字体文件 · IndexedDB</text>
-        <text x="48" y="118" fontSize="12" fill="#4b4a47">水印嵌入引擎</text>
-        <text x="48" y="144" fontSize="12" fill="#4b4a47">授权书生成</text>
-        <line x1="48" y1="164" x2="208" y2="164" stroke="#e0ddd5" strokeWidth="1" />
-        <text x="48" y="188" fontSize="10.5" fill="#918d86">WebCrypto 本地计算</text>
-        <text x="48" y="208" fontSize="10.5" fill="#918d86">字体文件仅存于本机</text>
-        {/* 右：云端 */}
-        <text x="488" y="40" style={{ font: "600 15px var(--serif)" }} fill="#34322e">文镇云端</text>
-        <rect x="472" y="56" width="184" height="184" rx="8" fill="#fffefd" stroke="#ebe8e2" strokeWidth="1" />
-        <text x="496" y="92" fontSize="12" fill="#4b4a47">哈希元数据</text>
-        <text x="496" y="118" fontSize="12" fill="#4b4a47">订单与配方</text>
-        <text x="496" y="144" fontSize="12" fill="#4b4a47">追溯索引</text>
-        <line x1="496" y1="164" x2="632" y2="164" stroke="#e0ddd5" strokeWidth="1" />
-        <text x="496" y="188" fontSize="10.5" fill="#918d86">主密钥仅存于云端</text>
-        <text x="496" y="208" fontSize="10.5" fill="#918d86">订单种子单向派生</text>
-        {/* ① 出网 */}
-        <text x="256" y="78" style={{ font: "500 10px var(--mono)" }} fill="#102d50" letterSpacing="1">① 出网</text>
-        <line x1="256" y1="88" x2="448" y2="88" stroke="#102d50" strokeWidth="1.5" markerEnd="url(#arr-ok)" />
-        <text x="256" y="106" fontSize="10.5" fill="#67645f">字体哈希 · 订单信息 · 水印哈希</text>
-        <text x="256" y="122" fontSize="10.5" fill="#918d86">每请求合计不足 1 KB，不含任何字体内容</text>
-        {/* 被禁止通道 */}
-        <line x1="256" y1="150" x2="448" y2="150" stroke="#aa573d" strokeWidth="1.25" strokeDasharray="5 4" opacity="0.8" />
-        <line x1="344" y1="141" x2="360" y2="159" stroke="#aa573d" strokeWidth="1.75" />
-        <line x1="360" y1="141" x2="344" y2="159" stroke="#aa573d" strokeWidth="1.75" />
-        <text x="256" y="172" fontSize="10.5" fill="#aa573d">字体文件本体 · 不传输，云端不设存储路径</text>
-        {/* ② 入网 */}
-        <text x="256" y="200" style={{ font: "500 10px var(--mono)" }} fill="#102d50" letterSpacing="1">② 入网</text>
-        <line x1="448" y1="210" x2="256" y2="210" stroke="#102d50" strokeWidth="1.5" markerEnd="url(#arr-ok)" />
-        <text x="256" y="228" fontSize="10.5" fill="#67645f">订单配方 · 32 字节种子，不含主密钥</text>
-        {/* 底注 */}
-        <text x="340" y="254" textAnchor="middle" fontSize="10.5" fill="#918d86">
-          通道 ① 为全部业务出网数据；字体处理均在本地完成
-        </text>
-      </svg>
+      {/* ── 一次签发做了什么：五步流程 + 每步的数据与去向 + 产出 ─────────────
+          底色 = 数据在哪一侧：跨界步骤白底、本机步骤灰底。 */}
+      <div className="block">
+        <div className="block-title">一次签发做了什么</div>
+        <svg viewBox="0 0 680 180" role="img" aria-labelledby="flow-title flow-desc">
+          <title id="flow-title">一次签发做了什么</title>
+          <desc id="flow-desc">五步签发流程：登记哈希、创建订单、取云端配方、本地嵌入、提交回执。每步标注流转的数据与去向，其中本地嵌入在本机完成，产出水印字体与授权书交付给客户。</desc>
+          <defs>
+            <marker id="flow-arrow" markerWidth="9" markerHeight="9" refX="7.7" refY="3.2" orient="auto">
+              <path d="M0,0 L7.7,3.2 L0,6.4 z" fill="#918d86" />
+            </marker>
+            <marker id="flow-arrow-done" markerWidth="9" markerHeight="9" refX="7.7" refY="3.2" orient="auto">
+              <path d="M0,0 L7.7,3.2 L0,6.4 z" fill="#97C459" />
+            </marker>
+          </defs>
 
-      {/* OUTBOUND / NEVER 双栏（原型 facts） */}
-      <div className="facts">
-        <div>
-          <div className="kicker">OUTBOUND</div>
-          <div className="section-title">出网数据项
-            <InfoI>本清单与上方数据流向图逐项列出与字体及业务相关的全部出网数据，不存在其他业务出网通道。账号服务（登录、验证邮件等）与字体无关，详见《隐私政策》。</InfoI>
-          </div>
-          <ul>
-            {OUTBOUND_FIELDS.map((f) => (
-              <li key={f.name}><b>{f.name}</b>：{f.detail}</li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <div className="kicker">NEVER</div>
-          <div className="section-title">本地专属数据</div>
-          <ul>
-            {NEVER_OUTBOUND.map((n) => <li key={n}>{n}</li>)}
-          </ul>
-        </div>
+          <rect x="40" y="20" width="88" height="64" rx="8" fill="#fffefd" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="84" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">登记哈希</text>
+          <text x="84" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">字体哈希</text>
+          <text x="84" y="75" textAnchor="middle" fontSize="9.5" fill="#102d50">出网</text>
+          <line x1="128" y1="52" x2="168" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+
+          <rect x="168" y="20" width="88" height="64" rx="8" fill="#fffefd" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="212" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">创建订单</text>
+          <text x="212" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">订单号</text>
+          <text x="212" y="75" textAnchor="middle" fontSize="9.5" fill="#102d50">出网</text>
+          <line x1="256" y1="52" x2="296" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+
+          <rect x="296" y="20" width="88" height="64" rx="8" fill="#fffefd" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="340" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">取云端配方</text>
+          <text x="340" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">32 字节种子</text>
+          <text x="340" y="75" textAnchor="middle" fontSize="9.5" fill="#102d50">入网</text>
+          <line x1="384" y1="52" x2="424" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+
+          <rect x="424" y="20" width="88" height="64" rx="8" fill="#f5f3ef" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="468" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">本地嵌入</text>
+          <text x="468" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">字体文件</text>
+          <text x="468" y="75" textAnchor="middle" fontSize="9.5" fill="#597060">本机</text>
+          <line x1="512" y1="52" x2="552" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+
+          <rect x="552" y="20" width="88" height="64" rx="8" fill="#fffefd" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="596" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">提交回执</text>
+          <text x="596" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">水印哈希</text>
+          <text x="596" y="75" textAnchor="middle" fontSize="9.5" fill="#102d50">出网</text>
+
+          <path d="M468,84 L468,93 Q468,101 460,101 L348,101 Q340,101 340,109 L340,116"
+            fill="none" stroke="#97C459" strokeWidth="1.5" markerEnd="url(#flow-arrow-done)" />
+          <rect x="240" y="118" width="200" height="42" rx="8" fill="#EAF3DE" stroke="#97C459" strokeWidth="1" />
+          <text x="340" y="135" textAnchor="middle" fontSize="11.5" fill="#3B6D11">水印字体 · 授权书</text>
+          <text x="340" y="150" textAnchor="middle" fontSize="10" fill="#3B6D11">交付给客户</text>
+        </svg>
       </div>
 
-      {/* 开源范围（决策点 3 拍板结果上屏——原先这段唯一渲染在没人引用的死组件里） */}
-      <div className="drow"><small>开源范围 · 公开部分为可自证内容，私有部分另行评估</small>
-        <div className="sublist">
-          {OSS_SCOPE.map((o) => (
-            <div key={o.area}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: o.open ? "var(--green)" : "var(--rust)" }}>
-                  {o.open ? "✓ 公开" : "✕ 私有"}
-                </span>
-                <span style={{ fontSize: 12.5 }}>{o.area}</span>
-              </div>
-              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{o.why}</div>
+      {/* ── 一次追溯做了什么：五步流程 + 产出 ─────────────────────────────
+          与签发流程互为镜像：五步里只有「拉取候选配方」跨界（白底），其余四步都在本机（灰底）。 */}
+      <div className="block">
+        <div className="block-title">一次追溯做了什么</div>
+        <svg viewBox="0 0 680 180" role="img" aria-labelledby="trace-title trace-desc">
+          <title id="trace-title">一次追溯做了什么</title>
+          <desc id="trace-desc">五步追溯流程：导入可疑字体、读取字体自证、匹配本机原版、向云端拉取候选订单与配方、本机比对水印信号。五步里只有拉取候选会出网，产出鉴定书并在本机留存。</desc>
+          <defs>
+            <marker id="trace-arrow" markerWidth="9" markerHeight="9" refX="7.7" refY="3.2" orient="auto">
+              <path d="M0,0 L7.7,3.2 L0,6.4 z" fill="#918d86" />
+            </marker>
+            <marker id="trace-arrow-done" markerWidth="9" markerHeight="9" refX="7.7" refY="3.2" orient="auto">
+              <path d="M0,0 L7.7,3.2 L0,6.4 z" fill="#97C459" />
+            </marker>
+          </defs>
+
+          <rect x="40" y="20" width="88" height="64" rx="8" fill="#f5f3ef" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="84" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">导入可疑字体</text>
+          <text x="84" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">可疑字体</text>
+          <text x="84" y="75" textAnchor="middle" fontSize="9.5" fill="#597060">本机</text>
+          <line x1="128" y1="52" x2="168" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#trace-arrow)" />
+
+          <rect x="168" y="20" width="88" height="64" rx="8" fill="#f5f3ef" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="212" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">读取自证</text>
+          <text x="212" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">订单号</text>
+          <text x="212" y="75" textAnchor="middle" fontSize="9.5" fill="#597060">本机</text>
+          <line x1="256" y1="52" x2="296" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#trace-arrow)" />
+
+          <rect x="296" y="20" width="88" height="64" rx="8" fill="#f5f3ef" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="340" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">匹配本机原版</text>
+          <text x="340" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">原版字体</text>
+          <text x="340" y="75" textAnchor="middle" fontSize="9.5" fill="#597060">本机</text>
+          <line x1="384" y1="52" x2="424" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#trace-arrow)" />
+
+          <rect x="424" y="20" width="88" height="64" rx="8" fill="#fffefd" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="468" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">拉取候选配方</text>
+          <text x="468" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">原版哈希</text>
+          <text x="468" y="75" textAnchor="middle" fontSize="9.5" fill="#102d50">出网 · 入网</text>
+          <line x1="512" y1="52" x2="552" y2="52" stroke="#918d86" strokeWidth="1.5" markerEnd="url(#trace-arrow)" />
+
+          <rect x="552" y="20" width="88" height="64" rx="8" fill="#f5f3ef" stroke="#d8d3cb" strokeWidth="1" />
+          <text x="596" y="42" textAnchor="middle" fontSize="11.5" fill="#34322e">比对水印信号</text>
+          <text x="596" y="60" textAnchor="middle" fontSize="10.5" fill="#67645f">命中订单</text>
+          <text x="596" y="75" textAnchor="middle" fontSize="9.5" fill="#597060">本机</text>
+
+          <path d="M596,84 L596,93 Q596,101 588,101 L508,101 Q500,101 500,109 L500,116"
+            fill="none" stroke="#97C459" strokeWidth="1.5" markerEnd="url(#trace-arrow-done)" />
+          <rect x="400" y="118" width="200" height="42" rx="8" fill="#EAF3DE" stroke="#97C459" strokeWidth="1" />
+          <text x="500" y="135" textAnchor="middle" fontSize="11.5" fill="#3B6D11">鉴定书</text>
+          <text x="500" y="150" textAnchor="middle" fontSize="10" fill="#3B6D11">命中订单与置信度</text>
+        </svg>
+      </div>
+
+      {/* ── 数据在哪里：本机 / 云端各存什么（横向并排，窄屏回落单列） ───────── */}
+      <div className="block">
+        <div className="block-title">数据在哪里</div>
+        <div className="loc-grid">
+          <div>
+            <div className="loc-head">本机浏览器</div>
+            <div className="loc-body">
+              <div>字体文件 · 字形轮廓</div>
+              <div>客户资料 · 备份文件</div>
+              <div>嵌入过程与中间产物</div>
             </div>
-          ))}
+          </div>
+          <div>
+            <div className="loc-head">文镇云端</div>
+            <div className="loc-body">
+              <div>字体哈希 · 订单号</div>
+              <div>水印哈希 · 追溯索引</div>
+              <div>主密钥</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 自证行（原型 drow） */}
-      <div className="drow"><small>算法版本</small>
-        <b><span className="mono" style={{ fontSize: 15 }}>{ALGO_VERSION}</span>（已冻结，改动需升版本号）</b>
-      </div>
-      <div className="drow"><small>源码自证 · 浏览器内对上述 {PROOF_SOURCES.length} 个关键源文件实时计算 SHA-256 并扫描网络调用（<a href={REPO_URL} target="_blank" rel="noreferrer" style={{ color: "var(--navy)" }}>开源仓库：引擎与门户公开，签发服务端私有</a>）</small>
-        <div className="sublist">
-          {PROOF_SOURCES.map((p) => {
-            const scan = scanNetworkCalls(p.source);
-            const open = openPath === p.path;
-            const verdict = scan.clean
-              ? { text: "✓ 无网络调用", color: "var(--green)" }
-              : p.expectNet
-                ? { text: "✓ 仅限预期出网", color: "var(--navy)" }
-                : { text: `✕ 发现 ${scan.hits.join(" / ")}`, color: "var(--rust)" };
-            return (
-              <div key={p.path}>
-                <div className="proof-head">
-                  <span style={{ fontSize: 12, color: verdict.color, fontWeight: 600 }}>
-                    {verdict.text}
-                  </span>
-                  <code className="proof-path">{p.path}</code>
-                  <Button variant="ghost" size="sm"
-                    onClick={() => setOpenPath(open ? null : p.path)}>
-                    {open ? "收起源码" : "查看源码"}
-                  </Button>
-                </div>
-                <div className="proof-meta">
-                  {p.title}{p.expectNet && `——${p.expectNet}`} · SHA-256 {hashes[p.path]
-                    ? <code>{hashes[p.path]}</code>
-                    : <Spinner />}
-                </div>
-                {open && (
-                  <pre className="proof-src">{p.source}</pre>
-                )}
+      {/* ── 自证表：折叠态一行摘要，证据收进展开体 ─────────────────────── */}
+      <div className="verify-table">
+        <div className="verify-row">
+          <div className="verify-label">可验证性</div>
+          <div className="verify-main">
+            <div className="verify-summary">
+              <span style={{ color: unexpected ? "var(--rust)" : "var(--green)" }}>
+                {unexpected
+                  ? `✕ ${unexpected} 个源文件出现非预期网络调用`
+                  : `✓ ${PROOF_SOURCES.length} 个源文件已实时哈希，无异常网络调用`}
+              </span>
+              <span className="sep">·</span>
+              <span>算法版本 <span className="mono">{ALGO_VERSION}</span></span>
+              <span className="sep">·</span>
+              <span>本页 SHA-256 {selfHash ? "已实时计算" : "计算中"}</span>
+            </div>
+          </div>
+          <button
+            className={`verify-toggle${proofOpen ? " open" : ""}`}
+            aria-expanded={proofOpen}
+            onClick={() => setProofOpen((v) => !v)}
+          >
+            {proofOpen ? "收起自证详情" : "查看自证详情"}
+          </button>
+        </div>
+
+        <AccordionPanel open={proofOpen}>
+          <div className="verify-inner">
+            <div className="drow">
+              <small>算法版本</small>
+              <b><span className="mono" style={{ fontSize: 15 }}>{ALGO_VERSION}</span>（已冻结，改动需升版本号）</b>
+            </div>
+
+            <div className="drow">
+              <small>源码自证</small>
+              <div className="verify-note">
+                浏览器内实时算 SHA-256、扫网络调用。源码见{" "}
+                <a href={REPO_URL} target="_blank" rel="noreferrer">开源仓库</a>
               </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="drow"><small>本页自证 · SHA-256（打开页面时实时计算）</small>
-        <b className="hash-line">{selfHash ?? "正在计算……"}</b>
-      </div>
-      <div className="drow"><small>离线兜底</small>
-        <b>支持完全离线签发：使用离线签名工具，配方于本机生成，证据可离线核验</b>
+              {PROOF_SOURCES.map((p) => {
+                const scan = scanNetworkCalls(p.source);
+                const open = openPath === p.path;
+                const verdict = scan.clean
+                  ? { text: "✓ 无网络调用", color: "var(--green)" }
+                  : p.expectNet
+                    ? { text: "✓ 仅限预期出网", color: "var(--navy)" }
+                    : { text: `✕ 发现 ${scan.hits.join(" / ")}`, color: "var(--rust)" };
+                return (
+                  <div className="verify-src" key={p.path}>
+                    <div className="proof-head">
+                      <span style={{ fontSize: 12, fontWeight: 500, color: verdict.color }}>
+                        {verdict.text}
+                      </span>
+                      <code className="proof-path">{p.path}</code>
+                      <button className="verify-src-btn"
+                        onClick={() => setOpenPath(open ? null : p.path)}>
+                        {open ? "收起源码" : "查看源码"}
+                      </button>
+                    </div>
+                    <div className="verify-src-meta">
+                      {p.title} · SHA-256 {hashes[p.path] ? <code>{hashes[p.path]}</code> : <Spinner />}
+                    </div>
+                    {open && <pre className="proof-src">{p.source}</pre>}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="drow">
+              <small>本页自证 · SHA-256（打开页面时实时计算）</small>
+              <b className="hash-line">{selfHash ?? "正在计算……"}</b>
+            </div>
+
+            <div className="drow">
+              <small>开源范围</small>
+              <div className="verify-note">公开部分为可自证内容，私有部分另行评估</div>
+              {OSS_SCOPE.map((o) => (
+                <div className="verify-oss" key={o.area}>
+                  <div className="verify-oss-head">
+                    <span className="verify-oss-tag"
+                      style={{ color: o.open ? "var(--green)" : "var(--rust)" }}>
+                      {o.open ? "✓ 公开" : "✕ 私有"}
+                    </span>
+                    <span>{o.area}</span>
+                  </div>
+                  <div className="verify-oss-why">{o.why}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </AccordionPanel>
       </div>
 
-      <div className="actions" style={{ marginTop: 24 }}>
+      <div className="actions" style={{ marginTop: 36 }}>
         <a className="btn btn-outline btn-md" href={OFFLINE_TOOL_PATH} download="typeflow-local-signer.html">
           下载离线签名工具
         </a>

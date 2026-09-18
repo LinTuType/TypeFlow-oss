@@ -5,8 +5,8 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `5fbba3fea45c2904a5fce624ff217dd30cfc9582`（branch main，工作树干净） |
-| 导出时间 | 2026-09-17T17:10:27.493Z |
+| 主仓库 commit | `8af603cd99c6513fcd2630cd7eb6035f38af1fd0`（branch main，工作树干净） |
+| 导出时间 | 2026-09-18T00:46:39.139Z |
 | 文件数 | 89 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
@@ -29,7 +29,7 @@
 | engine/tests/browser.ts | `ad825b3bacb552d0d62b1332a3a3e1a8b03e76a7f1c9228c57dd14e4390c8b07` |
 | engine/tests/compare.ts | `7626da16140f2b91f2b15d53718312c54eb0955ec20678a1c1cb796350da8723` |
 | engine/tests/e2e-local-signer.ts | `19c6fa63951ca87b494e091dd2bf84dad2ba51cc38e8f0f0006508de2f413cc0` |
-| engine/tests/e2e-portal.ts | `4044ca91b3e81c3c781f1badac9acb6afdb5387a52ddd2026d18bf203bdcafdb` |
+| engine/tests/e2e-portal.ts | `adea8b3ad43f12a96139c9b1918017ee08d84dfe4853fa5b17537ee6078c4571` |
 | engine/tests/fixtures/hybudai-subset.ttf | `c7ba0d8fad728f232966ea122af60e37ace567fdf4de1297dc081d78ecc5dba1` |
 | engine/tests/fixtures/xingyun-subset.ttf | `dd46e1bcc01487cf4476f61464e6a0ecb8d154f049d9f1ad3086ae67673158d0` |
 | engine/tests/fontPath.ts | `d12c11503ee356466589089ac4f7bae90718dbd379282e74885011122910acb4` |
@@ -80,7 +80,7 @@
 | portal/src/lib/trace.ts | `a54f507bfb5f25e0fc6a38b99759816a0619d8c2ccbcf2e72a3171871e927c5d` |
 | portal/src/lib/traceHistory.ts | `ccdb1bcd11280722b041fe9fb4fd9e57e37ca7f083fab406e233a4a847665d60` |
 | portal/src/lib/traceReportHtml.ts | `85b297679cba1810a09336169713c3bc459ca44615016ce2b41a64b52b5bd70f` |
-| portal/src/lib/trust.ts | `b1c90403fa0e43ec05ac76fff892c0718cb00170ae810b87a077b0cf41e3f6dc` |
+| portal/src/lib/trust.ts | `a8760838c6595c996ad0cb3b4e13e5aafda086dfdd6dd868e66b3584692cc439` |
 | portal/src/lib/zip.ts | `550ef7db0bea2658a65e4f314a3605d4ba10a45490a68a7d422860033fb3383a` |
 | portal/src/main.tsx | `d4f896b8431e2995744daea33b9566e37ac5ac8735d501aa8d8cda2bd413c624` |
 | portal/src/pages/Clients.tsx | `031507b564d6518031a76069f5fd833c2d235df6935a82f14eaebbf1d4311af9` |
@@ -91,11 +91,11 @@
 | portal/src/pages/Orders.tsx | `7d052fd628966704c109e65a1e87e2a967642e5d1d1d30ecf4a4f3876c9c4091` |
 | portal/src/pages/Overview.tsx | `ce4f4d7e8318709705d7f8ed4aa02aec1d7dde4ab3b40c6986716bf67b19a0c2` |
 | portal/src/pages/ResetPassword.tsx | `450b3f93103fd0e84d49b31df0e783ac5a2db2abc5293ad62c65adc38adc835b` |
-| portal/src/pages/Security.tsx | `422143fddf8d1f163e8ee4228ba702a79b759ac3b0232634d3a0806c0dbfbbef` |
+| portal/src/pages/Security.tsx | `f8619a17496e29277c8b141286ca582abc39e032bf9b3cb5c908717deca753b3` |
 | portal/src/pages/Settings.tsx | `fb7965f17be25e26b5254edc607789a4f39ffa72395bb1ab8c24ef01153e5320` |
 | portal/src/pages/Trace.tsx | `c979d4ed74b0308579b805a5e1971c850372cf5d675cf3b770b7fc9a19308e8d` |
 | portal/src/pages/VerifyEmail.tsx | `c2a653dd5a815366fca36c9bc89deb8ccc4600a1d18ee41c02b7ced0afc9ee12` |
-| portal/src/styles/theme-v9-ext.css | `007b4fa73dbbcbd9dba9468c1ef285f70b8616b9fda742f7e75270648971b193` |
+| portal/src/styles/theme-v9-ext.css | `ae7d6abc6188d2ed39716bd47d3e47dfb1ffed5545ddb8be6ed42104e57821d8` |
 | portal/src/styles/theme-v9.css | `23cbfaa179099f46d4e84e5ccc3e37fd0e3fe66988d7e04d870e401f4dc407fa` |
 | portal/src/vite-env.d.ts | `65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5` |
 | portal/tsconfig.json | `8f2c000dd69ebc121b15206fe406135410a3e2217c19c48bc5350e71301d5596` |
