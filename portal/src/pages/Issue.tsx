@@ -16,9 +16,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { listLocalFonts, saveLocalFont, sha256Of, type LocalFont } from "../lib/localFonts";
+import { listLocalFonts, type LocalFont } from "../lib/localFonts";
 import { listCustomers, saveCustomer, genCustomerId, type Customer } from "../lib/localCustomers";
-import { invalidateFontFace } from "../lib/fontFace";
+import { importFontDetail, importFontFile } from "../lib/fontImport";
 import { maybeFolderBackup } from "../lib/backupFolder";
 import { issueOne, PHASE_LABEL, type IssueOutcome, type IssuePhase } from "../lib/issueFlow";
 import { readFoundry, type Foundry } from "../lib/foundry";
@@ -27,7 +27,6 @@ import { toast } from "../lib/toast";
 import IssueResult, { IssueDeliveries } from "../components/IssueResult";
 import LicensePaper from "../components/LicensePaper";
 import FontPicker from "../components/FontPicker";
-import { assertSupportedTtf } from "@engine/ttf/reader.js";
 import { visibleSchemes, schemeLabel } from "../lib/schemes";
 import { AccordionPanel, Button, PageHeader, Spinner } from "../components/ui";
 import { IconChevron, IconPencil, IconPlus } from "../components/Icon";
@@ -53,7 +52,7 @@ const TERM_OPTIONS: TermOption[] = [
 export default function Issue() {
   const [localFonts, setLocalFonts] = useState<Array<Omit<LocalFont, "data">>>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [foundry, setFoundry] = useState<Foundry>({ name: "", short: "", site: "", seal: "round" });
+  const [foundry, setFoundry] = useState<Foundry>({ name: "", short: "", site: "", seal: "round", sealImage: "" });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<IssueOutcome | null>(null);
@@ -63,6 +62,8 @@ export default function Issue() {
   // 表单
   const [clientRef, setClientRef] = useState("");
   const [clientId, setClientId] = useState("");
+  /** 交付邮箱（只存本机）—— 签发完成后「邮件发给客户」的收件人，取客户库里的那份 */
+  const [clientEmail, setClientEmail] = useState("");
   const [fontId, setFontId] = useState<string | null>(null);
   const [licenseType, setLicenseType] = useState("enterprise");
   const [termKey, setTermKey] = useState("permanent");
@@ -218,6 +219,7 @@ export default function Issue() {
       setCustomers((prev) => [c, ...prev]);
       setClientRef(name);
       setClientId(c.id);
+      setClientEmail(c.email ?? "");
       setClientForm({ name: "", email: "" });
       setClientFormOpen(false);
       setOpenPicker(null);
@@ -229,27 +231,19 @@ export default function Issue() {
     }
   };
 
-  /** 展开体里导入本机字体（与字体库同一条路径：本体只进 IndexedDB，不联网） */
+  /**
+   * 展开体里导入本机字体 —— 入库逻辑走 lib/fontImport.ts
+   * （与字体库页、「开始使用」引导同一处实现：本体只进 IndexedDB，不联网、不登记元数据）。
+   */
   const importFont = async (f: File | null) => {
     if (!f) return;
     setFontBusy(true);
     try {
-      const buf = await f.arrayBuffer();
-      assertSupportedTtf(new Uint8Array(buf));   // OTF/CFF 拒之门外（人话文案）
-      const sha = await sha256Of(buf);
-      const id = sha.slice(0, 16);
-      await saveLocalFont({
-        id,
-        name: f.name.replace(/\.(ttf|otf|woff2?)$/i, ""),
-        filename: f.name, sha256: sha, glyphCount: 0, size: f.size,
-        savedAt: Date.now(), data: buf,
-      });
-      invalidateFontFace(id);
-      maybeFolderBackup();
+      const r = await importFontFile(f);
       await load();
-      setFontId(id);            // 导入即选中：少一步
+      setFontId(r.id);            // 导入即选中：少一步
       setOpenPicker(null);
-      toast.success(`已导入本机：${f.name}`, { detail: "未上传、未同步——只保存在你的浏览器里" });
+      toast.success(`已导入本机：${f.name}`, { detail: importFontDetail(r) });
     } catch (e) {
       toast.error("导入字体失败", { detail: (e as Error).message });
     } finally {
@@ -271,6 +265,8 @@ export default function Issue() {
           clientRef: clientRef.trim() || undefined,
           // 勾选了客户库里的客户才带 client_id；手工输入的名字只写授权书抬头，不上云
           clientId: clientId || undefined,
+          // 交付邮箱：只存本机订单关联，供签发后与订单页重发邮件使用
+          clientEmail: clientEmail.trim() || undefined,
           licenseType, ...termMs(),
           amount: price.trim() || undefined, note: note.trim() || undefined,
         },
@@ -327,7 +323,7 @@ export default function Issue() {
                   <input
                     className="line-input"
                     value={clientRef}
-                    onChange={(e) => { setClientRef(e.target.value); setClientId(""); }}
+                    onChange={(e) => { setClientRef(e.target.value); setClientId(""); setClientEmail(""); }}
                     placeholder="客户 / 公司名（写入授权书抬头）"
                     aria-label="被授权方名称"
                   />
@@ -338,7 +334,11 @@ export default function Issue() {
                   ) : (
                     customers.map((c) => (
                       <div key={c.id} className="picker-item" role="button" tabIndex={0}
-                        onClick={() => { setClientRef(c.name); setClientId(c.id); setOpenPicker(null); }}>
+                        onClick={() => {
+                          setClientRef(c.name); setClientId(c.id);
+                          setClientEmail(c.email ?? "");   // 客户库里的交付邮箱 → 签发后的邮件收件人
+                          setOpenPicker(null);
+                        }}>
                         <span className="picker-item-t">{c.name}</span>
                         {c.email && <span className="picker-item-s mono">{c.email}</span>}
                       </div>

@@ -1,7 +1,7 @@
 /**
- * 设置页 —— 6 条线性分组行，点击条目**就地向下展开**（原右侧滑出抽屉已退役）
+ * 设置页 —— 5 条线性分组行，点击条目**就地向下展开**（原右侧滑出抽屉已退役）
  *
- *   厂牌信息 / 授权方案 / 本地数据与备份 / 密钥与隐私 / 账号与合规
+ *   厂牌信息 / 授权方案 / 数据与备份 / 密钥与隐私 / 账号与合规
  *   （操作记录不单独成区：云端段只报条数，完整台账随「导出数据」带走）
  *
  * 展开体排版 = 小标签 + 衬线值（.drow），与签发页同语言；业务逻辑与迁移前一致。
@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { ALGO_VERSION } from "@engine/webv1";
 import { apiAudit, apiAccount, apiFonts, apiOrders, apiAuth, type AuditEntry } from "../api/client";
 import { clearToken, getEmailVerified, setEmailVerified } from "../api/client";
@@ -18,15 +19,19 @@ import { listOrderNotes, clearAllOrderNotes } from "../lib/localOrders";
 import { listTraceRecords, clearAllTraceRecords } from "../lib/traceHistory";
 import { exportDataFile, importDataFile } from "../lib/backup";
 import {
-  isFsaSupported, pickFolder, getFolderHandle, clearFolderHandle,
+  isFsaSupported, getFolderHandle, clearFolderHandle,
   checkFolderPerm, scanFontFolder,
 } from "../lib/fsFolder";
 import {
   writeFolderBackup, getBackupFolderState, maybeFolderBackup,
   snapshotLocalData, hasSnapshot, restoreSnapshot,
 } from "../lib/backupFolder";
+// 绑定文件夹 + 接回旧备份：唯一实现在 lib/restore.ts（与「开始使用」引导共用）
+import { bindFolderAndRestore, finishRestore } from "../lib/restore";
+import { resetOnboarding } from "../lib/onboarding";
 import { toast } from "../lib/toast";
 import { readFoundry, writeFoundry, clearFoundry, type Foundry, type SealShape } from "../lib/foundry";
+import { prepareSealImage, sealImageSizeText } from "../lib/sealImage";
 import {
   listSchemes, saveSchemes, genSchemeKey, DEFAULT_SCHEMES, clearSchemes,
   type LicenseScheme,
@@ -75,7 +80,10 @@ export default function Settings() {
   const [emailVerified, setEmailVerifiedState] = useState<boolean | null>(() => getEmailVerified());
 
   // 厂牌（授权方：抬头 / 落款 / 印章都读它，见 lib/foundry.ts）
-  const [foundry, setFoundry] = useState<Foundry>({ name: "", short: "", site: "", seal: "round" });
+  const [foundry, setFoundry] = useState<Foundry>({ name: "", short: "", site: "", seal: "round", sealImage: "" });
+  /** 印章图片上传：隐藏的 file input，由「上传图片」按钮触发（不弹窗、不开新面板） */
+  const sealFileRef = useRef<HTMLInputElement>(null);
+  const [sealBusy, setSealBusy] = useState(false);
 
   // 授权方案（可编辑增删；schemes.ts 是唯一数据源，签发页与文书实时跟这里同步）
   const [schemes, setSchemes] = useState<LicenseScheme[]>([]);
@@ -161,12 +169,19 @@ export default function Settings() {
 
   /** 保存厂牌到本地（授权书抬头 / 落款 / 印章都读它） */
   const saveFoundry = () => {
-    writeFoundry({
-      name: foundry.name.trim(),
-      short: foundry.short.trim(),
-      site: foundry.site.trim(),
-      seal: foundry.seal,
-    });
+    try {
+      writeFoundry({
+        name: foundry.name.trim(),
+        short: foundry.short.trim(),
+        site: foundry.site.trim(),
+        seal: foundry.seal,
+        // 空串 = 明确清除（「移除印章图片」写的就是它）；不传才是「不动这一项」
+        sealImage: foundry.sealImage ?? "",
+      });
+    } catch (e) {
+      toast.error("厂牌信息未能保存", { detail: (e as Error).message });
+      return;   // 写失败就不关面板：留在这里让用户先换张小图
+    }
     maybeFolderBackup();
     toast.success("厂牌信息已保存（本机）", {
       detail: foundry.name.trim()
@@ -174,6 +189,32 @@ export default function Settings() {
         : "尚未填写授权方名称——授权书抬头会显示「（未设置授权方）」",
     });
     close();
+  };
+
+  /**
+   * 上传印章图片。加工只发生在这一刻（lib/sealImage.ts：校格式 / 缩到 512px / 控体积），
+   * 处理完先落 state 出预览，点「保存」才写本机 —— 与厂牌其它字段同一节奏，可随时反悔。
+   */
+  const pickSeal = async (f: File | null) => {
+    if (!f) return;
+    setSealBusy(true);
+    try {
+      const img = await prepareSealImage(f);
+      setFoundry((prev) => ({ ...prev, sealImage: img.dataUrl }));
+      toast.success(`印章图片已就绪（${img.width}×${img.height} · ${sealImageSizeText(img.bytes)}）`, {
+        detail: "点「保存」写入本机 —— 之后授权书的落款印章都用它",
+      });
+    } catch (e) {
+      toast.error("印章图片不可用", { detail: (e as Error).message });
+    } finally {
+      setSealBusy(false);
+    }
+  };
+
+  /** 移除印章图片（保存后生效）：落款回到文字印章 */
+  const removeSeal = () => {
+    setFoundry((prev) => ({ ...prev, sealImage: "" }));
+    toast.success("已移除印章图片", { detail: "点「保存」后授权书落款回到文字印章" });
   };
 
   /** ── 授权方案：保存 = 整表写回 schemes.ts（localStorage），签发页/文书即时生效 ── */
@@ -249,8 +290,10 @@ export default function Settings() {
       // 授权方信息若残留，共用设备上等于没清干净
       clearFoundry();
       clearSchemes();
+      // 「开始使用」引导的标记也清掉：本地清空之后回到初始状态，下次登录重新走一遍引导
+      resetOnboarding();
       toast.success("已清除本地数据", {
-        detail: `删除 ${lf.length} 个字体、${cs.length} 位客户、${notes.length} 条订单关联（金额/期限/备注）与全部追溯历史；授权方信息与授权方案已恢复默认。云端登记不受影响`,
+        detail: `删除 ${lf.length} 个字体、${cs.length} 位客户、${notes.length} 条订单关联（金额/期限/备注）与全部追溯历史；授权方信息与授权方案已恢复默认。云端登记不受影响；若绑定过备份文件夹，绑定回来即可恢复`,
       });
       await load();
     } catch (e) {
@@ -323,15 +366,20 @@ export default function Settings() {
     }
   };
 
-  /** ── 本地文件夹（统一：备份目标 + 字体添加入口） ── */
+  /** ── 本地文件夹（统一：备份目标 + 字体添加入口 + 换机后的恢复来源） ── */
   const doBindFolder = async () => {
     try {
-      const name = await pickFolder();
-      setFolderName(name);
+      // 绑定 + 接回旧备份的逻辑在 lib/restore.ts（与「开始使用」引导共用同一处）：
+      // 「先探旧备份、再决定写不写」这条安全线只在那里实现一次。
+      const r = await bindFolderAndRestore();
+      setFolderName(r.name);
       setFolderPerm("granted");
-      await writeFolderBackup();   // 绑定后立即写一次全量备份
+      if (r.restored) {
+        finishRestore(r.restored);   // 接回了旧备份：结果经 sessionStorage 传递，并 reload
+        return;
+      }
       setLastFolderBk(Date.now());
-      toast.success(`已绑定本地文件夹「${name}」`, { detail: "字体从这里扫描入库并锁定版本；数据变更会自动备份（清单 + 字体本体）" });
+      toast.success(`已绑定本地文件夹「${r.name}」`, { detail: "字体从这里扫描入库并锁定版本；数据变更会自动备份（清单 + 字体本体）" });
     } catch (e) {
       const msg = (e as Error).message;
       if (msg && !msg.includes("abort")) toast.error("绑定失败", { detail: msg });
@@ -470,6 +518,25 @@ export default function Settings() {
                 ))}
               </div>
             </div>
+            {/* 印章图片：上传后替代文字印章（不叠加）。加工在 lib/sealImage.ts，只存本机 */}
+            <div className="drow"><small>印章图片<InfoI>有图片印章时，授权书落款盖这枚图片章，
+              文字印章让位（两者不叠加）；选「不盖章」则两者都不盖。图片只存本机，随本机备份搬运。</InfoI></small>
+              <div className="seal-set">
+                {foundry.sealImage
+                  ? <img className="seal-img sm" src={foundry.sealImage} alt="印章预览" />
+                  : <b className="seal-set-none">文字印章</b>}
+                <div className="seal-set-act">
+                  <Button size="sm" disabled={sealBusy} onClick={() => sealFileRef.current?.click()}>
+                    {sealBusy ? <Spinner size={12} /> : null}
+                    {foundry.sealImage ? "更换图片" : "上传图片"}
+                  </Button>
+                  {foundry.sealImage && <Button size="sm" onClick={removeSeal}>移除</Button>}
+                </div>
+              </div>
+            </div>
+            <input ref={sealFileRef} type="file" hidden
+              accept="image/png,image/jpeg,image/webp" aria-label="上传印章图片"
+              onChange={(e) => { void pickSeal(e.target.files?.[0] ?? null); e.target.value = ""; }} />
             {!foundry.name.trim() && (
               <p className="note">未填授权方名称时，授权书抬头会显示「（未设置授权方）」——
                 不会回落成平台名。文书上出现平台名，等于用我们的名义替你做授权。</p>
@@ -582,6 +649,11 @@ export default function Settings() {
             <KV k="客户库" v={`${customerCount} 位客户`} />
             <KV k="订单备注" v={`${noteCount} 条`} />
             <KV k="追溯历史" v={`${traceCount} 份报告`} />
+            {/* 引导入口：清掉「已放过」的标记，并把用户直接送过去 —— 当初跳过的人、换设备的人
+                都能再走一遍（用户 2026-09-18 口径：完成后从设置页可重新打开） */}
+            <KV k="开始使用引导" v={
+              <Link to="/welcome" className="kv-link" onClick={() => resetOnboarding()}>重新显示</Link>
+            } />
             <div className="note">客户姓名、订单备注与追溯报告只在本机，云端没有这一项。</div>
 
             <BodyHead>云端登记 · 只有哈希与订单号</BodyHead>
@@ -595,7 +667,7 @@ export default function Settings() {
             <BodyHead>备份
               <InfoI>备份写入绑定的文件夹：typeflow-data.json（明文清单，含客户资料）+
                 typeflow-fonts/（字体本体，添加时写入）。请放在你自己可控的位置（网盘 / 移动硬盘 / Time Machine）。
-                换机时把整个文件夹带走，或用「导出数据」出一个 zip。</InfoI>
+                换机或换浏览器后，绑定回这个文件夹即可读回字体名、客户与授权方案；也可以用「导出数据」出一个 zip。</InfoI>
             </BodyHead>
             <KV k="绑定文件夹"
               v={!fsSupported ? "浏览器不支持"

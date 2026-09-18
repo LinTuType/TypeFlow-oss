@@ -14,7 +14,7 @@
  */
 
 import { STORE, dbGet, dbPut } from "./db";
-import { buildExportFile } from "./backup";
+import { buildExportFile, FONTS_DIR } from "./backup";
 import { listCustomers } from "./localCustomers";
 import { listOrderNotes } from "./localOrders";
 import { replaceCustomers } from "./localCustomers";
@@ -85,7 +85,7 @@ export async function writeFolderBackup(): Promise<number> {
   if (perm !== "granted") throw new Error("需要重新授权文件夹访问");
 
   // 字体本体：typeflow-fonts/<sha16>-<文件名>，只写缺的（字体只在"添加"时变，增量写避免大文件反复落盘）
-  const fontsDir = await handle.getDirectoryHandle("typeflow-fonts", { create: true });
+  const fontsDir = await handle.getDirectoryHandle(FONTS_DIR, { create: true });
   let fontsWritten = 0;
   for (const f of await listLocalFonts()) {
     const name = `${f.sha256.slice(0, 16)}-${f.filename}`;
@@ -135,6 +135,57 @@ export async function getBackupFolderState(): Promise<BackupFolderState | null> 
   const handle = await getBackupFolderHandle();
   if (!handle) return null;
   return { name: handle.name, lastBackupAt: await lastFolderBackupAt() };
+}
+
+/* ---------- 读回（换浏览器 / 换设备后恢复本机数据） ---------- */
+
+export interface FolderBackupPayload {
+  /** typeflow-data.json 原文，调用方负责解析 */
+  json: string;
+  /** 字体本体，键名与 zip 内路径一致（typeflow-fonts/<sha16>-<文件名>）——两条恢复路径共用 applyExportFile */
+  fonts: Map<string, Uint8Array>;
+  folderName: string;
+}
+
+/**
+ * 从绑定文件夹读回整份备份。
+ *
+ * 用途：换了浏览器 / 换了设备时 IndexedDB 是空的——云端只剩哈希与订单号，
+ * 字体名、客户、授权方案全对不上号；绑定回原来那个文件夹即可整组恢复。
+ * 只读本机磁盘，不发任何请求。
+ *
+ * 文件夹里没有 typeflow-data.json 时抛错（多半选错了文件夹）。
+ * 字体子目录缺失不算失败：清单照样恢复（客户 / 厂牌 / 订单关联 / 授权方案），
+ * 字体本体留待设置页「扫描字体」补。
+ */
+export async function readFolderBackup(): Promise<FolderBackupPayload> {
+  const handle = await getBackupFolderHandle();
+  if (!handle) throw new Error("尚未绑定本地文件夹");
+  const perm = await checkBackupPerm(handle);
+  if (perm !== "granted") throw new Error("需要重新授权文件夹访问");
+
+  let json: string;
+  try {
+    const fh = await handle.getFileHandle(FILE_NAME);
+    json = await (await fh.getFile()).text();
+  } catch {
+    throw new Error(`这个文件夹里没有 ${FILE_NAME}，请选当初绑定为备份的那个`);
+  }
+
+  const fonts = new Map<string, Uint8Array>();
+  try {
+    const dir = await handle.getDirectoryHandle(FONTS_DIR);
+    // values() 为异步迭代器（TS dom 类型未收录，与 scanFontFolder 同一处理）
+    const values = (dir as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values();
+    for await (const entry of values) {
+      if (entry.kind !== "file") continue;
+      const file = await (entry as FileSystemFileHandle).getFile();
+      fonts.set(`${FONTS_DIR}/${entry.name}`, new Uint8Array(await file.arrayBuffer()));
+    }
+  } catch {
+    /* 没有字体子目录：清单先恢复，字体后续扫描补 */
+  }
+  return { json, fonts, folderName: handle.name };
 }
 
 /* ---------- 导入前快照 / 一键撤销（P2 保障机制） ---------- */

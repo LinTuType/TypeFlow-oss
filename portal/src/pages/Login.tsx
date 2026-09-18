@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Button } from "../components/ui";
 import { useNavigate } from "react-router-dom";
 import { apiAuth, setToken, setTenant, setEmailVerified } from "../api/client";
+import { isOnboardingDismissed } from "../lib/onboarding";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -40,7 +41,9 @@ export default function Login() {
       setTenant(res.display_name || displayName.trim() || email);
       // 邮箱验证状态：未验证会挡住签发，设置页据此给出提示与重发入口
       setEmailVerified(res.email_verified === true);
-      navigate("/", { replace: true });
+      // 首次登录算首次（用户 2026-09-18 口径）：引导还没放过就先走一遍「开始使用」。
+      // 注册与登录共用一个出口 —— 两个模式都覆盖；完成或跳过后标记写住，之后直接进概览。
+      navigate(isOnboardingDismissed() ? "/" : "/welcome", { replace: true });
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
     } finally {

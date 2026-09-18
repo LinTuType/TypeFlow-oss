@@ -23,6 +23,8 @@ export interface IssueOptions {
   clientRef?: string;
   /** 客户 ID（cu_ 开头不透明串；与本地客户库主键对应，云端只收这个） */
   clientId?: string;
+  /** 交付邮箱（本机字段，云端不存）—— 签发后「邮件发给客户」的收件人 */
+  clientEmail?: string;
   licenseType?: string;
   /** 授权期限起止（ms）；都缺省 = 永久。文书约定只存本机，不上云 */
   licenseStart?: number;
@@ -39,6 +41,7 @@ export interface IssueOutcome {
   fontName: string;
   clientRef: string;   // 客户名（授权书抬头，仅本机）
   clientId: string;    // 客户 ID（空串 = 未关联客户库）
+  clientEmail: string; // 交付邮箱（空串 = 没填/没建档，邮件收件人留空）
   licenseType: string;
   licenseStart?: number;
   licenseEnd?: number;
@@ -89,9 +92,10 @@ async function runIssueFlow(
   });
   onOrderCreated?.(order.order_id);   // 让外层能在中途失败时把订单号报给用户
 
-  if (opts.note || opts.clientId || opts.amount || opts.licenseType) {
+  if (opts.note || opts.clientId || opts.amount || opts.licenseType || opts.clientEmail) {
     await saveOrderNote({
       orderId: order.order_id, clientId: opts.clientId || undefined,
+      clientEmail: opts.clientEmail || undefined,
       note: opts.note || undefined, amount: opts.amount,
       licenseType: opts.licenseType || undefined,
       licenseStart: opts.licenseStart, licenseEnd: opts.licenseEnd,
@@ -122,6 +126,7 @@ async function runIssueFlow(
     fontName: font.name,
     clientRef: opts.clientRef ?? "",
     clientId: opts.clientId ?? "",
+    clientEmail: opts.clientEmail ?? "",
     licenseType: opts.licenseType ?? "enterprise",
     licenseStart: opts.licenseStart,
     licenseEnd: opts.licenseEnd,

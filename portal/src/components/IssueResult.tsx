@@ -15,13 +15,18 @@
 import { useMemo } from "react";
 import { downloadBytes } from "../lib/issuer";
 import { buildLicenseHtml, printLicenseHtml } from "../lib/license";
-import { buildDeliveryZip, licenseDataOf, watermarkedFontName, type DeliveryMeta } from "../lib/delivery";
+import {
+  buildDeliveryZip, deliveryPackageName, licenseDataOf, watermarkedFontName, type DeliveryMeta,
+} from "../lib/delivery";
+import { deliveryMailto } from "../lib/mailto";
 import { readFoundry } from "../lib/foundry";
 import type { IssueOutcome } from "../lib/issueFlow";
 
 /** 由 outcome 推出交付所需的 meta（本组件与 IssueDeliveries 共用同一份推导） */
 function useDelivery(outcome: IssueOutcome) {
-  const { orderId, fontName, clientRef, licenseType, licenseStart, licenseEnd, amount, issuedAt, sign } = outcome;
+  const {
+    orderId, fontName, clientRef, clientEmail, licenseType, licenseStart, licenseEnd, amount, issuedAt, sign,
+  } = outcome;
   /** 授权方读本机厂牌（写进授权书抬头 / 落款 / 印章）；签发过程中不会变，读一次即可 */
   const licensor = useMemo(() => readFoundry(), []);
   const meta: DeliveryMeta = {
@@ -31,12 +36,15 @@ function useDelivery(outcome: IssueOutcome) {
     nModified: sign.nModified,
     watermarkedFont: sign.fontBytes,
   };
+  /** 交付邮件：收件人取客户库里的邮箱（签发时带过来的），客户端缺就留空自己填 */
+  const { url: mailUrl } = deliveryMailto(meta, clientEmail);
   return {
     sign,
+    mailUrl,
     /** 文件名 = 原版字体名 + 订单号（与交付包内那份逐字一致，见 lib/delivery.ts） */
     downloadFont: () => downloadBytes(sign.fontBytes, watermarkedFontName(fontName, orderId), "font/ttf"),
     /** 交付包：水印字体 + 授权书 + 使用说明 + 指纹，一次下载齐全 */
-    downloadPackage: () => downloadBytes(buildDeliveryZip(meta), `${orderId}_交付包.zip`, "application/zip"),
+    downloadPackage: () => downloadBytes(buildDeliveryZip(meta), deliveryPackageName(orderId), "application/zip"),
     printLicense: () => printLicenseHtml(buildLicenseHtml(licenseDataOf(meta))),
   };
 }
@@ -44,12 +52,24 @@ function useDelivery(outcome: IssueOutcome) {
 /**
  * 交付动作 —— 放在授权书右上角的过程槽里（完成态）。
  * 形态是下划线式链接而非按钮块：纸面上放按钮会立刻不像文书。
+ *
+ * 动作分两行排，是**按 200px 固定槽宽算出来的**（.paper-top 的第二列写死 200px，
+ * 槽高 48px 且 overflow:hidden —— 多出一行会被直接裁掉）：
+ *   第一行 下载交付包 ∥ 邮件发给客户   ≈158px（两个都是「把交付物送出去」的一级动作）
+ *   第二行 下载水印字体 · 打印授权书   ≈133px
+ * 所以「下载交付包」去掉了 (.zip) 后缀 —— 腾出的宽度正好容纳邮件入口。
  */
 export function IssueDeliveries({ outcome }: { outcome: IssueOutcome }) {
-  const { downloadFont, downloadPackage, printLicense } = useDelivery(outcome);
+  const { downloadFont, downloadPackage, printLicense, mailUrl } = useDelivery(outcome);
   return (
     <>
-      <button className="proc-a" onClick={downloadPackage}>下载交付包 (.zip)</button>
+      <div className="proc-a-row">
+        <button className="proc-a" onClick={downloadPackage}>下载交付包</button>
+        {/* 点它的顺序是「先下载、再开邮件」：mailto 协议带不了附件，所以让交付包先落到
+            用户的下载目录里，邮件正文里点名了该拖哪个文件进去。不 preventDefault ——
+            由浏览器自己走 mailto 导航，比 location.href 稳（用户手势在手）。 */}
+        <a className="proc-a" href={mailUrl} onClick={downloadPackage}>邮件发给客户 ↗</a>
+      </div>
       <div className="proc-a2">
         <button onClick={downloadFont}>下载水印字体</button>
         <span className="proc-sep">·</span>

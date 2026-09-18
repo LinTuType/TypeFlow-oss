@@ -31,6 +31,10 @@ const LICENSOR_NAME = "E2E 测试字库";
 const LICENSOR_SHORT = "测试";
 const LICENSOR_SITE = "https://e2e-licensor.test";
 
+/** 被授权方的交付邮箱：签发后「邮件发给客户」的收件人就是它（只存本机客户库 / 订单关联） */
+const CLIENT_NAME = "青岚设计有限公司";
+const CLIENT_EMAIL = "design@qinglan.test";
+
 /** 读取 ZIP（中央目录 → 局部头 → 数据）。交付包用 store，deflate 也一并支持，便于复用 */
 function readZip(buf: Buffer): Map<string, Buffer> {
   const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
@@ -84,8 +88,30 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   await page.check('input[aria-label="同意用户协议与隐私政策"]');
   check("勾选条款后可提交", !(await page.locator("button[type=submit]").isDisabled()));
   await page.click("button[type=submit]");
+  // 首次登录算首次（用户 2026-09-18 口径）：引导没放过时先落「开始使用」而不是概览
+  await page.waitForURL("**/welcome", { timeout: 15000 }).catch(() => {});
+  check("首次登录进入「开始使用」引导", page.url().endsWith("/welcome"), page.url());
+
+  // 1a. 「开始使用」引导：五步清单，当前步就地展开（复用设置页那套规线条目语言）
+  // ⚠️ 等 `.step-mark`（引导页独有）而不是 `.settings .setting-item` —— 后者会被上一页在
+  //    转场期间的残留 DOM 命中（PageStage 退出阶段旧内容仍挂载），于是采样打到载入态。
+  await page.waitForSelector(".step-mark", { timeout: 15000 }).catch(() => {});
+  check("引导列出五步（各带序号标记与右箭头）",
+    (await page.locator(".settings .setting-item").count()) === 5
+    && (await page.locator(".step-mark").count()) === 5
+    && (await page.locator(".settings .setting-chev").count()) === 5);
+  const firstStepTitle = (await page.locator(".settings .setting-item.open .setting b").first().textContent()) ?? "";
+  check("默认展开第一个未完成的步骤（验证邮箱）", firstStepTitle.includes("验证邮箱"), firstStepTitle);
+  check("第一步时「上一步」不可点",
+    await page.locator(".welcome-foot button:has-text('上一步')").isDisabled());
+  check("进度按真实数据算（新账号 0 / 5）",
+    ((await page.locator(".welcome-progress").textContent()) ?? "").includes("0 / 5"));
+  // 跳过 = 写住标记 + 回概览（下次登录不再自动进引导；标记只存本机）
+  await page.click(".welcome-foot .kv-link:has-text('跳过引导')");
   await page.waitForURL("**/", { timeout: 10000 }).catch(() => {});
-  check("注册并自动登录进入仪表盘", !page.url().endsWith("/login"));
+  const startFlag = await page.evaluate(() => localStorage.getItem("typeflow_start_dismissed"));
+  check("跳过引导后回概览并写住标记",
+    startFlag === "1" && !page.url().includes("/welcome"), String(startFlag));
 
   // 1b. 邮箱验证（P1-8 起未验证会被挡在签发之外）。
   //     本地 worker 的 dev-server 捕获邮件并开了一条 /api/__dev/mails 通道，
@@ -107,8 +133,12 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const dash = (await page.textContent("body")) ?? "";
   check("仪表盘 lead 统计句渲染", dash.includes("款字体") && dash.includes("位客户") && dash.includes("笔订单"));
   check("仪表盘含待办尾巴", dash.includes("等待处理"));
-  check("继续工作线性行 3 条", (await page.locator("a.continue-row").count()) === 3,
-    `实际 ${await page.locator("a.continue-row").count()} 条`);
+  // 概览首屏有载入态（正文 !loading 才渲染）——先等线性行出来再计数。
+  // 原先在同一个表达式的 cond 与 detail 里各 count 一次，两次取到的是不同时刻的 DOM：
+  // 报出过「实际 3 条」却判失败（cond 时还是 0，detail 时已经 3），是断言写法自身的竞态。
+  await page.waitForSelector("a.continue-row", { timeout: 10000 }).catch(() => {});
+  const continueRows = await page.locator("a.continue-row").count();
+  check("继续工作线性行 3 条", continueRows === 3, `实际 ${continueRows} 条`);
   check("侧栏显示登录身份", dash.includes("E2E 测试工作室"));
   const navDeco = await page.locator(".navlink").first().evaluate((el) => getComputedStyle(el).textDecorationLine);
   check("侧栏底部入口（安全与信任 / 设置）无下划线", navDeco === "none", navDeco);
@@ -219,11 +249,13 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     (await page.locator(".acc-panel.open .picker-add:has-text('新建客户')").count()) === 1);
   // 5.5 资料库卡片的前置：订单要带上客户 → 就地新建客户并选中
   await page.locator(".acc-panel.open .picker-add:has-text('新建客户')").click();
-  await page.fill('input[aria-label="新客户名称"]', "青岚设计有限公司");
+  await page.fill('input[aria-label="新客户名称"]', CLIENT_NAME);
+  // 交付邮箱一起填上：签发后的「邮件发给客户」靠它预填收件人（见 4a-4 的断言）
+  await page.fill('input[aria-label="新客户联系方式"]', CLIENT_EMAIL);
   await page.locator(".acc-panel.open button:has-text('创建客户')").click();
   await page.waitForTimeout(600);
   check("展开体内新建客户成功并选中",
-    ((await page.locator(".pick").first().textContent()) ?? "").includes("青岚设计有限公司"));
+    ((await page.locator(".pick").first().textContent()) ?? "").includes(CLIENT_NAME));
   await page.locator(".pick").nth(1).click();          // 切换：客户收起、字体展开
   await page.waitForTimeout(400);
   check("展开体内提供「导入字体」入口",
@@ -306,7 +338,7 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
   // 4a-2. 过程槽（2026-09-17）：进度与下载入口都在授权书右上角，不再另开一块
   check("下载入口在授权书右上角的过程槽里（左栏不再有按钮行）",
-    (await page.locator(".paper .proc-res.on .proc-a").count()) === 1
+    (await page.locator(".paper .proc-res.on .proc-a").count()) === 2
     && (await page.locator(".issue-done-actions").count()) === 0);
   check("过程槽完成后保留完整五步记录",
     (await page.locator(".paper .proc-row").count()) === 5);
@@ -333,6 +365,24 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   } else {
     check("水印字体可下载，且命名为「字体名_订单号.ttf」", false, "未找到下载按钮");
   }
+
+  // 4a-4. 交付邮件入口（2026-09-18）：预填收件人与内容，交给**本机邮件客户端**。
+  //   ⚠️ 只读 href、不点击 —— 点它会真的去开邮件客户端，而且会先触发一次交付包下载（页面会离开）。
+  //   收件人来自客户库（上面新建客户时填的那份交付邮箱）。
+  const mailA = page.locator(".paper .proc-res.on .proc-a-row a");
+  check("过程槽第一行是「下载交付包 ∥ 邮件发给客户」两个一级动作",
+    (await mailA.count()) === 1
+    && ((await mailA.textContent()) ?? "").includes("邮件发给客户"));
+  const mailHref = (await mailA.getAttribute("href")) ?? "";
+  const mailDecoded = decodeURIComponent(mailHref);
+  check("邮件入口是 mailto 链接（交给本机邮件客户端，不经服务器）",
+    mailHref.startsWith("mailto:"), mailHref.slice(0, 40));
+  check("邮件收件人取客户库里的交付邮箱",
+    mailHref.startsWith(`mailto:${CLIENT_EMAIL}`), mailHref.slice(0, 60));
+  check("邮件主题与正文预填订单号 / 字体 / 期限，并点名该附哪个交付包",
+    mailDecoded.includes(orderId) && mailDecoded.includes("xingyun-Regular")
+    && mailDecoded.includes("授权期限：永久") && mailDecoded.includes(`${orderId}_交付包.zip`),
+    mailDecoded.replace(/\s+/g, " ").slice(0, 80));
 
   // 4b. 交付包（批次 4）：水印字体 + 授权书 + 使用说明 + 指纹，一次下载齐全
   const zipBtn = page.locator("button:has-text('下载交付包')").first();
@@ -374,6 +424,50 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     for (const l of ["交付包内水印字体与页面回执哈希一致", "使用说明含订单号、核验命令对上包内文件名与存 PDF 指引",
       "授权书 HTML 含订单号与标题", "指纹清单含双哈希与订单号"]) check(l, false, "解包失败");
   }
+
+  // 4b-1. 印章图片（新增）：上传后**替代**文字印章（不叠加）。这里守住前三件事 ——
+  //   ① 加工全在浏览器里完成（600×600 会被缩到 512 上限）；② 只存本机 localStorage；
+  //   ③ 屏幕出口立刻换成图片章。第四件（打印出口 / 交付包里的 HTML）在 4b-2 里随重算一起验。
+  await page.goto(PORTAL + "/settings");
+  await page.waitForSelector("button.setting", { timeout: 10000 }).catch(() => {});
+  await page.click("button.setting:has-text('厂牌信息')");
+  await page.waitForTimeout(400);
+  // 用 canvas 现造一张 600×600 的 PNG：超过 512 上限，正好把等比缩放那一步也走到
+  const sealPng = await page.evaluate(() => {
+    const c = document.createElement("canvas");
+    c.width = 600; c.height = 600;
+    const ctx = c.getContext("2d");
+    if (!ctx) return "";
+    ctx.fillStyle = "#aa573d";
+    ctx.fillRect(0, 0, 600, 600);
+    return c.toDataURL("image/png");
+  });
+  const [sealChooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.locator(".setting-item.open button:has-text('上传图片')").click(),
+  ]);
+  await sealChooser.setFiles({
+    name: "seal.png", mimeType: "image/png",
+    buffer: Buffer.from(sealPng.split(",")[1], "base64"),
+  });
+  await page.waitForSelector(".setting-item.open .seal-img", { timeout: 10000 }).catch(() => {});
+  const sealToast = (await page.locator(".toast").allTextContents()).join(" | ");
+  check("上传印章图片后就地出预览（加工在浏览器里完成）",
+    (await page.locator(".setting-item.open .seal-img").count()) === 1);
+  check("超过 512px 的印章被等比缩到上限（600×600 → 512×512）",
+    sealToast.includes("512×512"), sealToast.slice(0, 80));
+  await page.locator(".setting-item.open button:has-text('保存')").click();
+  await page.waitForTimeout(400);
+  const sealLs = await page.evaluate(() => localStorage.getItem("typeflow_foundry_seal_image"));
+  check("印章图片只存本机（localStorage 里的 data URL）",
+    !!sealLs && sealLs.startsWith("data:image/png;base64,"), String(sealLs).slice(0, 30));
+
+  // 屏幕出口：图片章替代文字章 —— 两者不同时出现
+  await page.goto(PORTAL + "/issue");
+  await page.waitForTimeout(700);
+  check("上传印章后授权书落款换成图片章（文字章让位）",
+    (await page.locator(".paper .seal-img").count()) === 1
+    && (await page.locator(".paper .seal").count()) === 0);
 
   // 4b-2. 订单页「重新生成交付包」：水印字体不落本地库，靠「本机原版字体 + 云端配方」重算，
   //       嵌入是确定性的 ⇒ 结果必须与首次逐字节一致（这是"重新下载"成立的全部依据）
@@ -418,9 +512,14 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
       ttf2 ? sha256(ttf2).slice(0, 16) : "包内没有水印字体");
     check("重算出的授权书与原单一致（订单号 + 授权方抬头 + 字体名取本机）",
       lic2.includes(orderId) && lic2.includes(LICENSOR_NAME) && lic2.includes("xingyun-Regular"));
+    // 打印出口同步：授权书 HTML 内嵌的是 data URL 图片章，文字章让位（两个出口不能各是一套）
+    check("打印出口的授权书印章也是上传的图片章（内嵌 data URL）",
+      lic2.includes('class="seal-img"') && lic2.includes("data:image/png;base64,")
+      && !lic2.includes(`<i>${LICENSOR_SHORT}</i>`));
   } else {
     for (const l of ["重算结果与首次逐字节一致（本地嵌入是确定性的）",
-      "重算出的授权书与原单一致（订单号 + 授权方抬头 + 字体名取本机）"]) check(l, false, "解包失败");
+      "重算出的授权书与原单一致（订单号 + 授权方抬头 + 字体名取本机）",
+      "打印出口的授权书印章也是上传的图片章（内嵌 data URL）"]) check(l, false, "解包失败");
   }
 
   // §2.5 F-4 + 5.5：客户名是跳转链接 → 直接打开客户详情卡（订单号 / 金额本地拼接）
@@ -603,6 +702,51 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const privBody = (await page.textContent("body")) ?? "";
   check("隐私政策页公开可读", privBody.includes("隐私政策") && privBody.includes("一个字节都不上传"));
 
+  // 4c. 移除印章图片 → 屏幕出口回到文字印章，本机记录同时清空（「移除」是可反悔的）
+  await page.goto(PORTAL + "/settings");
+  await page.waitForSelector("button.setting", { timeout: 10000 }).catch(() => {});
+  await page.click("button.setting:has-text('厂牌信息')");
+  await page.waitForTimeout(400);
+  await page.locator(".setting-item.open button:has-text('移除')").click();
+  await page.waitForTimeout(200);
+  await page.locator(".setting-item.open button:has-text('保存')").click();
+  await page.waitForTimeout(400);
+  const sealCleared = await page.evaluate(() => localStorage.getItem("typeflow_foundry_seal_image"));
+  check("移除印章图片后本机记录清空", sealCleared === "", String(sealCleared));
+  await page.goto(PORTAL + "/issue");
+  await page.waitForTimeout(700);
+  check("移除后授权书落款回到文字印章",
+    (await page.locator(".paper .seal").count()) === 1
+    && (await page.locator(".paper .seal-img").count()) === 0);
+
+  // 4d-0. 引导按真实数据打勾 + 设置页可重新打开（2026-09-18）
+  //   验两件事：① 步骤状态不是另存的进度，而是从字体库 / 厂牌 / 订单现算出来的；
+  //   ② 会话里的邮箱验证状态是注册那一刻的快照，点一次第 1 步的按钮会向服务端核对并同步
+  //      —— 服务端已验证时只回 already_verified，不会重复发信。
+  await page.goto(PORTAL + "/settings");
+  await page.waitForSelector("button.setting", { timeout: 10000 }).catch(() => {});
+  await page.click("button.setting:has-text('数据与备份')");
+  await page.waitForTimeout(400);
+  const reopenLink = page.locator(".setting-item.open .kv-link:has-text('重新显示')");
+  check("设置页提供「重新显示」引导入口", (await reopenLink.count()) === 1);
+  await reopenLink.click();
+  await page.waitForURL("**/welcome", { timeout: 10000 }).catch(() => {});
+  // 等引导页自己的标记（不能等 `.setting-item`：设置页的残留 DOM 会把它骗过去，见 1a 的说明）
+  await page.waitForSelector(".step-mark", { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  // 此时字体已入库、厂牌已填、订单已签发 ⇒ 第 3 / 4 / 5 步该自己亮起来
+  const marksBefore = await page.locator(".step-mark.done").count();
+  check("引导按真实数据打勾（字体 / 授权方 / 订单 三步已完成）",
+    marksBefore === 3, `已完成 ${marksBefore} 步`);
+  // 第 1 步默认就是展开的（第一个未完成）
+  await page.locator(".setting-item.open button:has-text('发验证邮件')").click();
+  await page.waitForTimeout(1500);
+  const marksAfter = await page.locator(".step-mark.done").count();
+  check("点一次把验证状态同步过来（服务端已验证时不重复发信）",
+    marksAfter === 4, `已完成 ${marksAfter} 步`);
+  await page.click(".welcome-foot .kv-link:has-text('跳过引导')");
+  await page.waitForURL("**/", { timeout: 10000 }).catch(() => {});
+
   await page.goto(PORTAL + "/settings");
   // 设置页首屏是载入态（此时还没有条目），先等条目渲染出来再断言
   await page.waitForSelector("button.setting", { timeout: 10000 }).catch(() => {});
@@ -778,7 +922,7 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     sidebarWho.trim() === "E2E 测试工作室", sidebarWho.trim());
 
   // 5b. 标本卡真渲染的回归线（2026-09-18 部署后真机检查在预发上抓到的缺陷）：
-  //     同一行会从「云端仅存哈希」变成「本机也有文件」，而合并后的行 key 不变
+  //     同一行会从「这份字体不在本机」变成「本机也有文件」，而合并后的行 key 不变
   //     （都是 sha256 前 16 位）⇒ React 复用同一个组件实例。若 GlyphPreview 的 effect
   //     不把 local 放进依赖，就永远不会重试，卡片一直停在「无文件」，刷新才恢复。
   //     这里把那条时序在页面里复现：删掉本机本体（该行退化成云端行）→ 原样加回来。
@@ -794,8 +938,8 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   // 等状态真的翻过来再断言：删除要经过 removeLocalFont → load()（重取云端 + 本机）。
   // 固定 sleep 在整条 test:all 并发跑时不够用（实测 900ms 会偶发假失败）。
   await page.waitForSelector(".font-card .glyph-failed", { timeout: 15000 }).catch(() => {});
-  check("删除本机本体后该行退化成「云端仅存哈希」（此时画不出字形是正常的）",
-    ((await page.textContent("body")) ?? "").includes("云端仅存哈希")
+  check("删除本机本体后该行写人话「这份字体不在本机」（此时画不出字形是正常的）",
+    ((await page.textContent("body")) ?? "").includes("这份字体不在本机")
     && (await page.locator(".font-card .glyph-failed").count()) >= 1);
 
   await page.locator('input[type="file"]').setInputFiles({
@@ -805,6 +949,38 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   check("同哈希重新入库后标本区自行恢复（不靠刷新）",
     (await page.locator(".font-card .glyph-main").count()) >= 1
     && (await page.locator(".font-card .glyph-failed").count()) === 0);
+
+  // 5c. 换浏览器后的样子（2026-09-18）：本机 IndexedDB 是空的，云端只剩哈希与订单号 ——
+  //     提示条要说清"本机数据不在这个浏览器里"并摆出恢复入口；字体卡片与订单列写人话，
+  //     不再拿 sha16 顶替字体名（那串东西客户和自己都认不出）。
+  //     只清本机三表，不动 sessionStorage —— 会话令牌在那里，清了就登出了。
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    const req = indexedDB.open("typeflow", 2);
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(["fonts", "customers", "orders"], "readwrite");
+      tx.objectStore("fonts").clear();
+      tx.objectStore("customers").clear();
+      tx.objectStore("orders").clear();
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); resolve(); };
+    };
+    req.onerror = () => resolve();
+  }));
+
+  await page.goto(PORTAL + "/fonts");
+  await page.waitForSelector(".notice.warn", { timeout: 20000 }).catch(() => {});
+  const gapBody = (await page.textContent("body")) ?? "";
+  check("清空本机数据后，字体库摆出「从备份恢复」入口",
+    gapBody.includes("本机数据不在这个浏览器里") && gapBody.includes("导入备份文件"), gapBody.slice(0, 60));
+  check("云端登记的行写人话，不再出现「云端仅存哈希」",
+    gapBody.includes("这份字体不在本机") && !gapBody.includes("云端仅存哈希"));
+
+  await page.goto(PORTAL + "/orders");
+  await page.waitForSelector(".notice.warn", { timeout: 20000 }).catch(() => {});
+  const gapOrders = (await page.textContent("body")) ?? "";
+  check("订单页字体列写人话（不是 font_ 开头的哈希），并同样给出恢复入口",
+    gapOrders.includes("字体不在本机") && gapOrders.includes("本机数据不在这个浏览器里"));
 
   // 6. 无 JS 错误
   check("无页面 JS 错误", errors.length === 0, errors[0] ?? "");

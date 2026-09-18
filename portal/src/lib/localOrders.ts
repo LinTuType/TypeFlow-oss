@@ -15,6 +15,11 @@ export interface LocalOrderNote {
   orderId: string;
   /** 客户 ID（cu_xxxx，对应 customers store 的主键） */
   clientId?: string;
+  /**
+   * 交付邮箱 —— 只存本机，用于订单页重发交付邮件（「拉起本地邮件」的收件人）。
+   * 客户库里有这份邮箱，这里再存一份是为了订单页不必依赖客户库仍存在。
+   */
+  clientEmail?: string;
   /** 自由备注（≤500 字符） */
   note?: string;
   /** 授权费用（展示用字符串，如 "1,299"）——报价属商业细节，只在本机（5.6 拍板） */

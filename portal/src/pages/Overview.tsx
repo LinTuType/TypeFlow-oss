@@ -20,6 +20,7 @@ import { listLocalFonts } from "../lib/localFonts";
 import { schemeLabel } from "../lib/schemes";
 import { toast } from "../lib/toast";
 import { PageHeader, Spinner } from "../components/ui";
+import LocalDataNotice from "../components/LocalDataNotice";
 import { IconSpark, IconScanSearch, IconLayers } from "../components/Icon";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -105,6 +106,8 @@ export default function Overview() {
         </div>
       </header>
 
+      <LocalDataNotice />
+
       {/* lead 统计句（原型 v9：完整形态，数字可点跳转） */}
       <div className="lead">
         <p>
@@ -140,7 +143,7 @@ export default function Overview() {
                   <Link key={o.order_id} to="/orders" className="recent-row">
                     <span>
                       <span className="order-id">{o.order_id}</span>
-                      <span className="order-title">{fontNameById.get(o.font_id.replace(/^font_/, "")) || o.font_name || o.font_id} · {o.client_id ? clientNameById.get(o.client_id) ?? "未识别客户" : "未关联客户"}</span>
+                      <span className="order-title">{fontNameById.get(o.font_id.replace(/^font_/, "")) || o.font_name || "字体不在本机"} · {o.client_id ? clientNameById.get(o.client_id) ?? "未识别客户" : "未关联客户"}</span>
                     </span>
                     <span className="meta">{schemeLabel(licenseTypeByOrderId.get(o.order_id) ?? "")}</span>
                     <span className={`pill pill-${STATUS_PILL[o.status] ?? "neutral"}`}>

@@ -87,9 +87,12 @@ export async function buildBackupPayload(): Promise<{
   return { json, fonts };
 }
 
+/** 备份里字体本体所在的子目录（zip 内路径前缀 = 文件夹里的子目录名，两处必须一致） */
+export const FONTS_DIR = "typeflow-fonts";
+
 /** 字体在备份里的文件名：<sha16>-<原文件名>——同名不同版本不会互相覆盖 */
 export function fontEntryName(sha256: string, filename: string): string {
-  return `typeflow-fonts/${sha256.slice(0, 16)}-${filename}`;
+  return `${FONTS_DIR}/${sha256.slice(0, 16)}-${filename}`;
 }
 
 /** 导出为下载文件：一个 ZIP = 清单 JSON + 字体本体（换机导入这一份即完整恢复） */
@@ -114,29 +117,19 @@ function downloadBytes(bytes: Uint8Array, filename: string, mime: string): void 
   URL.revokeObjectURL(url);
 }
 
-/**
- * 从备份文件导入：ZIP（新，含字体本体）或 JSON（旧 v1–v3，无本体）。
- * 恢复客户库 / 厂牌 / 本地订单关联 / 追溯历史（整表替换），zip 再按哈希回灌字体本体。
- * 调用方应在替换前先 snapshotLocalData()，导入出错或后悔时可 restoreSnapshot() 一键还原。
- */
-export async function importDataFile(file: File): Promise<{
+export interface ApplyResult {
   customers: number; fonts: number; orders: number; traces: number; fontsRestored: number; schemes: number;
-}> {
-  const buf = new Uint8Array(await file.arrayBuffer());
-  const isZip = buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b;   // "PK"
-  let raw: ExportFile;
-  let fontBlobs = new Map<string, Uint8Array>();
-  if (isZip) {
-    const entries = readZip(buf);
-    const jsonEntry = entries.get("typeflow-data.json");
-    if (!jsonEntry) throw new Error("备份 zip 里没有 typeflow-data.json");
-    raw = JSON.parse(new TextDecoder().decode(jsonEntry)) as ExportFile;
-    for (const [name, data] of entries) {
-      if (name.startsWith("typeflow-fonts/")) fontBlobs.set(name, data);
-    }
-  } else {
-    raw = JSON.parse(new TextDecoder().decode(buf)) as ExportFile;
-  }
+}
+
+/**
+ * 应用一份备份内容 —— 「导入数据文件」与「从备份文件夹恢复」共用这一处。
+ * 两条恢复路径的差别只在**字节从哪来**（用户选的 zip / 绑定文件夹读回），
+ * 进来之后的行为完全一致：清单整表替换、字体本体按哈希回灌。
+ */
+export async function applyExportFile(
+  raw: ExportFile,
+  fontBlobs: Map<string, Uint8Array> = new Map(),
+): Promise<ApplyResult> {
   const v = raw?.v;
   if (raw?.app !== "typeflow" || (v !== 1 && v !== 2 && v !== 3) || !Array.isArray(raw.customers)) {
     throw new Error("文件格式无法识别（需要文镇导出的 JSON 备份）");
@@ -155,13 +148,13 @@ export async function importDataFile(file: File): Promise<{
   if (Array.isArray(raw.schemes)) {
     saveSchemes(raw.schemes);
   }
-  // 批次 5.6：zip 备份带字体本体 → 按清单哈希逐个回灌（已入库的跳过，大小对不上则拒绝）
+  // 批次 5.6：备份带字体本体 → 按清单哈希逐个回灌（已入库的跳过，哈希对不上则拒绝）
   let fontsRestored = 0;
   if (fontBlobs.size > 0 && Array.isArray(raw.fonts)) {
     for (const meta of raw.fonts) {
       const entry = fontEntryName(meta.sha256, meta.filename);
       const data = fontBlobs.get(entry);
-      if (!data) continue;                                  // 旧备份或文件缺失：跳过
+      if (!data) continue;                                  // 备份里没有这份本体：跳过
       const id = meta.sha256.slice(0, 16);
       if (await getLocalFontData(id)) { fontsRestored++; continue; }   // 已在本机：不重复写入
       const digest = await sha256Of(data.slice().buffer as ArrayBuffer);
@@ -184,4 +177,28 @@ export async function importDataFile(file: File): Promise<{
     schemes: Array.isArray(raw.schemes) ? raw.schemes.length : 0,
     fontsRestored,
   };
+}
+
+/**
+ * 从备份文件导入：ZIP（新，含字体本体）或 JSON（旧 v1–v3，无本体）。
+ * 恢复客户库 / 厂牌 / 本地订单关联 / 追溯历史（整表替换），zip 再按哈希回灌字体本体。
+ * 调用方应在替换前先 snapshotLocalData()，导入出错或后悔时可 restoreSnapshot() 一键还原。
+ */
+export async function importDataFile(file: File): Promise<ApplyResult> {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const isZip = buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b;   // "PK"
+  let raw: ExportFile;
+  const fontBlobs = new Map<string, Uint8Array>();
+  if (isZip) {
+    const entries = readZip(buf);
+    const jsonEntry = entries.get("typeflow-data.json");
+    if (!jsonEntry) throw new Error("备份 zip 里没有 typeflow-data.json");
+    raw = JSON.parse(new TextDecoder().decode(jsonEntry)) as ExportFile;
+    for (const [name, data] of entries) {
+      if (name.startsWith(FONTS_DIR + "/")) fontBlobs.set(name, data);
+    }
+  } else {
+    raw = JSON.parse(new TextDecoder().decode(buf)) as ExportFile;
+  }
+  return applyExportFile(raw, fontBlobs);
 }

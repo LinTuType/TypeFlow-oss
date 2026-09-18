@@ -15,7 +15,7 @@ import type { ComponentType, SVGProps } from "react";
 import {
   House, FileSignature, ScanSearch, Type, UsersRound, ReceiptText,
   ShieldCheck, Settings, Sun, Moon, Menu, Printer, Trash2, Ban,
-  Pencil, RefreshCw, type LucideIcon,
+  Pencil, RefreshCw, Mail, type LucideIcon,
 } from "lucide-react";
 
 type P = SVGProps<SVGSVGElement> & { size?: number };
@@ -108,3 +108,4 @@ export const IconChevron = (p: P) => (
 );
 
 export const IconPrint = lucide(Printer);
+export const IconMail = lucide(Mail);            // 交付邮件（把预填好的信交给本机邮件客户端）

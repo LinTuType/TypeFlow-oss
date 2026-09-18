@@ -6,6 +6,7 @@ import { cleanupLegacyStorage } from "./lib/db";
 
 import Shell from "./components/AppShell";
 import Login from "./pages/Login";
+import Welcome from "./pages/Welcome";
 import Overview from "./pages/Overview";
 import Fonts from "./pages/Fonts";
 import Issue from "./pages/Issue";
@@ -61,6 +62,8 @@ export default function App() {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route element={<RequireAuth><Shell /></RequireAuth>}>
+        {/* 首次登录引导（还没放过引导时由 Login 送到这里；设置页有入口再打开） */}
+        <Route path="/welcome" element={<Welcome />} />
         <Route path="/" element={<Overview />} />
         <Route path="/fonts" element={<Fonts />} />
         <Route path="/issue" element={<Issue />} />

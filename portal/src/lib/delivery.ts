@@ -60,6 +60,14 @@ export function safeFileNamePart(name: string): string {
   return cleaned || "字体";
 }
 
+/**
+ * 交付包压缩文件的名字 —— 签发页下载、订单页重算、邮件正文里提到的都是它。
+ * 包名是**授权方自己的归档物**，所以订单号在前（交付给客户的水印字体命名口径相反：字体名在前）。
+ */
+export function deliveryPackageName(orderId: string): string {
+  return `${orderId}_交付包.zip`;
+}
+
 /** 组装授权书数据（交付包里的 HTML 与屏幕预览吃同一份） */
 export function licenseDataOf(meta: DeliveryMeta): LicenseData {
   return {

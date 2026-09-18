@@ -170,9 +170,24 @@ export function licenseFooter(): string {
   return "本授权书一式一份，由授权方电子出具。未经授权方书面许可，不得转让、转授或超出授权范围使用。";
 }
 
-/** 印章文字折行；返回空数组表示不渲染印章（未填厂牌或选择「不盖章」） */
+/**
+ * 印章图片（data URL）；null = 没上传，或选了「不盖章」。
+ *
+ * ⚠️ 优先级：`seal === "none"` 不盖章 > 有图片用图片 > 文字印章。
+ * 「不盖章」是个明确意图，图片不该绕过它（否则用户选了不盖章、文书上照样有章）。
+ */
+export function licenseSealImage(d: LicenseData): string | null {
+  if (d.licensor.seal === "none") return null;
+  return d.licensor.sealImage?.trim() || null;
+}
+
+/**
+ * 印章文字折行；返回空数组 = 不渲染文字印章。
+ * 三种情况：选「不盖章」、**已上传印章图片**（图片替代文字章，不叠加）、厂牌名号为空。
+ */
 export function licenseSealLines(d: LicenseData): string[] {
   if (d.licensor.seal === "none") return [];
+  if (d.licensor.sealImage?.trim()) return [];
   return sealLines(sealText(d.licensor));
 }
 
@@ -192,6 +207,7 @@ export function buildLicenseHtml(d: LicenseData): string {
   const licensor = licensorTitle(d.licensor);
   const site = d.licensor.site.trim();
   const lines = licenseSealLines(d);
+  const sealImg = licenseSealImage(d);
   const sealCls = d.licensor.seal === "square" ? "seal sq" : "seal";
 
   // 事实栏与屏幕出口同构：两列网格（原先是每项一行的表格，两处版式对不上）
@@ -199,9 +215,13 @@ export function buildLicenseHtml(d: LicenseData): string {
     .map((f) => `    <div class="fact"><small>${esc(f.k)}</small><b${f.mono ? ' class="mono"' : ""}>${esc(f.v)}</b></div>`)
     .join("\n");
 
-  const sealHtml = lines.length
-    ? `      <div class="${sealCls}">${lines.map((l) => `<i>${esc(l)}</i>`).join("")}</div>`
-    : "";
+  // 印章三态：上传了图片 → 图片章（替代文字章）；否则文字章；都没有则不渲染。
+  // 图片是 data URL 内嵌 —— 打印窗口与交付包里的 HTML 都是自包含的，不依赖任何外部文件。
+  const sealHtml = sealImg
+    ? `      <img class="seal-img" src="${esc(sealImg)}" alt="印章">`
+    : lines.length
+      ? `      <div class="${sealCls}">${lines.map((l) => `<i>${esc(l)}</i>`).join("")}</div>`
+      : "";
 
   return `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>字体授权书 ${esc(d.orderId)}</title>
@@ -238,6 +258,8 @@ export function buildLicenseHtml(d: LicenseData): string {
         display:grid;place-items:center;text-align:center;font-weight:600;font-size:12px;line-height:1.35;}
   .seal.sq{border-radius:3px;}
   .seal i{font-style:normal;display:block;}
+  /* 上传的印章图片（替代文字章，不叠加）：高度与文字章同为 60px，宽度按比例、上限 120px */
+  .seal-img{height:60px;width:auto;max-width:120px;object-fit:contain;display:block;}
   .note{font-size:12px;line-height:1.85;color:#918d86;margin:30px 0 0;border-top:1px solid #ebe8e2;padding-top:18px;}
   /* 打印时同样限宽居中：给纸张留对称的页边距，而不是一侧贴边、一侧空一大块 */
   @media print { body{margin:14mm auto;} }
@@ -284,5 +306,15 @@ export function printLicenseHtml(html: string): void {
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 300);
+  /* 文书里可能有内嵌的印章图片（data URL）。原先固定等 300ms 就打印，图片还没解码完时会
+     印出一个空白位置 —— 改成等所有图片就绪；再留 3s 兜底，图坏了也照样能打。 */
+  const imgs = Array.from(win.document.images);
+  const ready = Promise.all(imgs.map((im) => (im.complete
+    ? Promise.resolve()
+    : new Promise<void>((res) => {
+      im.addEventListener("load", () => res(), { once: true });
+      im.addEventListener("error", () => res(), { once: true });
+    }))));
+  void Promise.race([ready, new Promise((res) => setTimeout(res, 3000))])
+    .then(() => setTimeout(() => win.print(), 120));
 }

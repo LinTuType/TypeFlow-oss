@@ -13,7 +13,7 @@
 
 import type { LicenseData } from "../lib/license";
 import {
-  licenseFields, licenseParagraph, licenseSealLines, licenseSubLine, licenseFooter,
+  licenseFields, licenseParagraph, licenseSealImage, licenseSealLines, licenseSubLine, licenseFooter,
   licenseScopeText, licenseTypeLabel,
 } from "../lib/license";
 import { licensorTitle, signatureLine, LICENSOR_PLACEHOLDER } from "../lib/foundry";
@@ -21,6 +21,8 @@ import ProcessSlot, { type PaperProcess } from "./ProcessSlot";
 
 export default function LicensePaper({ data, process }: { data: LicenseData; process?: PaperProcess }) {
   const lines = licenseSealLines(data);
+  // 印章三态：上传了图片 → 图片章（替代文字章，不叠加）；否则文字章；「不盖章」两者皆无
+  const sealImg = licenseSealImage(data);
   const site = data.licensor.site.trim();
   const title = licensorTitle(data.licensor);
   const unset = title === LICENSOR_PLACEHOLDER;
@@ -71,7 +73,9 @@ export default function LicensePaper({ data, process }: { data: LicenseData; pro
           <div className="sign-name">{signatureLine(data.licensor)}</div>
           <div className="paper-sub mono">{data.issuedAt || "—"}</div>
         </div>
-        {lines.length > 0 && (
+        {sealImg ? (
+          <img className="seal-img" src={sealImg} alt="印章" />
+        ) : lines.length > 0 && (
           <div className={"seal" + (data.licensor.seal === "square" ? " sq" : "")}>
             {lines.map((l, i) => <i key={i}>{l}</i>)}
           </div>

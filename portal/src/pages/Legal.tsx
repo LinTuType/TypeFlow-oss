@@ -33,7 +33,7 @@ function Shell({ kind, children }: { kind: "terms" | "privacy"; children: React.
       <a className="back" href="/login">← 返回</a>
       <div className="kicker">文镇 TypeFlow · Web</div>
       <h1>{kind === "terms" ? "用户协议" : "隐私政策"}</h1>
-      <div className="meta">版本 2026-09-16-v2 · 生效日期 2026-09-16 · 运营方：灵兔字形 Lingtu Type</div>
+      <div className="meta">版本 2026-09-18-v3 · 生效日期 2026-09-18 · 运营方：灵兔字形 Lingtu Type</div>
       {children}
     </div>
   );
@@ -168,7 +168,7 @@ export function Privacy() {
           <b>我们无法还原你的密码</b>，员工也一样；</li>
         <li>会话令牌：数据库只存令牌的 SHA-256，浏览器关闭即失效；</li>
         <li>主密钥：用于签发水印配方的密钥以 AES-256-GCM 加密托管，明文不落库；</li>
-        <li>本地业务数据（客户资料、厂牌与印章、订单备注）默认只存你的本机浏览器，
+        <li>本地业务数据（客户资料、厂牌与印章图片、订单备注与交付邮箱）默认只存你的本机浏览器，
           可绑定本地备份文件夹或导出 JSON 自行保管——<b>服务端不存储、也无法读取</b>。</li>
       </ul>
 
@@ -194,8 +194,8 @@ export function Privacy() {
       <h2>六、会话与本地存储</h2>
       <p>
         登录令牌保存在浏览器的 sessionStorage（<b>关闭标签页即失效</b>），不用于跨站追踪；
-        厂牌信息、字体清单等保存在你浏览器的 IndexedDB，属于你的本机数据，
-        清除浏览器数据即消失。
+        厂牌信息（含印章图片）与授权方案保存在 localStorage，字体文件、客户资料与订单关联
+        保存在 IndexedDB，都属于你的本机数据，清除浏览器数据即消失。
       </p>
 
       <p style={{ marginTop: 28, fontSize: 12.5, color: "var(--ink-300)" }}>

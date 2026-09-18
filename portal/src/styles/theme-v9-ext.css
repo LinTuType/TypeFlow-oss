@@ -455,10 +455,21 @@ html.platform-win .money { font-family: var(--sans); font-size: 28px; font-weigh
 .choice button:hover { color: var(--ink); }
 .choice button.on { color: var(--navy); border-bottom-color: var(--navy); font-weight: 500; }
 
+/* 厂牌信息里的「印章图片」行：预览 + 动作（上传 / 更换 / 移除）横排。
+   预览复用 .seal-img.sm —— 与授权书落款那枚章同一渲染规格，只是缩小。
+   「文字印章」是状态说明不是值，降一档色，免得跟同列的实填值抢注意力。 */
+.drow .seal-set { display: flex; align-items: center; gap: 16px; }
+.drow .seal-set-act { display: flex; align-items: center; gap: 8px; }
+.drow .seal-set-none { color: var(--muted); }
+
 /* 印章（授权书落款）：文字印。圆 / 方两形，朱砂描边 + 衬线字；打印可见靠 print-color-adjust */
 .seal { width: 60px; height: 60px; border-radius: 50%; border: 1px solid #dfb4a3; color: var(--rust); display: grid; place-items: center; text-align: center; font: 600 12px/1.25 var(--serif); }
 .seal.sq { border-radius: 3px; }
 .seal i { font-style: normal; display: block; }
+/* 上传的图片印章 —— 替代文字章（不叠加）。高度与文字章同一规格 60px，宽度按比例、上限 120px；
+   .sm 是设置页里的预览缩略图（同一枚章缩小看）。打印出口的同名规格在 lib/license.ts 内联样式里。 */
+.seal-img { height: 60px; width: auto; max-width: 120px; object-fit: contain; display: block; }
+.seal-img.sm { height: 36px; max-width: 72px; }
 
 /* ── 授权书纸面（屏幕出口；打印出口在 lib/license.ts，两者吃同一份字段表） ── */
 /* 抬头 = 授权方自己的名号（原先写死「TYPEFLOW · 文镇」——等于用平台名义替用户授权） */
@@ -592,6 +603,22 @@ html.platform-win .money { font-family: var(--sans); font-size: 28px; font-weigh
 .setting-body .drow b, .setting-body .drow .q { font: 600 14px/1.75 var(--serif); }
 .setting-body .drow small { margin-bottom: 5px; }
 .panel-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 30px; }
+
+/* ── 「开始使用」引导（pages/Welcome.tsx）───────────────────────────────
+   步骤列表直接复用 `.settings` / `.setting-item` / `.setting-body` 那一族（同一个"规线条目"
+   语言，不发明新页型），这里只补三件它没有的东西：步骤标记、底部动作行、已完成字样。 */
+.step-mark {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line); color: var(--muted);
+  display: grid; place-items: center; font: 500 12px var(--mono);
+}
+.step-mark.done { border-color: var(--green); color: var(--green); }
+.welcome-foot { display: flex; align-items: center; gap: 10px; margin-top: 28px; max-width: 760px; }
+/* 进度靠右（`margin-left:auto`），「跳过引导」再靠一档 —— 它是这一页唯一的消极出口 */
+.welcome-progress { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+/* 「跳过引导」是这一页唯一的消极出口：与进度数字之间留一口气，别贴成一串 */
+.welcome-foot > .kv-link { margin-left: 14px; }
+.welcome-ok { font-size: 12.5px; color: var(--green); }
 
 /* ── 授权书纸张（原型 .paper 一族，规格在 theme-v9.css，此处仅补打印按钮位置） ── */
 .paper .btn { margin-top: 0; }
@@ -938,12 +965,18 @@ select.input { appearance: auto; }
   transition: opacity 260ms var(--ease), transform 260ms var(--ease);
 }
 .proc-res.on { opacity: 1; transform: none; pointer-events: auto; }
-/* 槽里的动作走下划线式链接，不用按钮块 —— 纸面上放按钮块立刻不像文书 */
+/* 槽里的动作走下划线式链接，不用按钮块 —— 纸面上放按钮块立刻不像文书。
+   text-decoration:none 是给「邮件发给客户」这个 <a> 的：它自带浏览器默认下划线，
+   叠在 border-bottom 上会变成双线（button 不受这条影响）。 */
 .proc-a {
   display: block; width: max-content; padding: 0 0 1px;
   border: 0; border-bottom: 1px solid var(--navy); background: none;
   font-size: 12px; line-height: 1.85; color: var(--navy); cursor: pointer;
+  text-decoration: none;
 }
+/* 一级交付动作并排一行（下载交付包 ∥ 邮件发给客户）——
+   槽宽固定 200px，两个 12px 链接合计约 158px，放得下；多一行会超出槽高被裁掉。 */
+.proc-a-row { display: flex; align-items: baseline; gap: 14px; }
 .proc-a:hover { color: var(--navy2); border-bottom-color: var(--navy2); }
 .proc-a2 { font-size: 11px; line-height: 1.8; color: var(--muted); margin-top: 6px; }
 .proc-a2 button {

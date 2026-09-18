@@ -10,14 +10,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, apiFonts, apiOrders, type FontInfo } from "../api/client";
-import { listLocalFonts, saveLocalFont, removeLocalFont, sha256Of, type LocalFont } from "../lib/localFonts";
+import { listLocalFonts, removeLocalFont, type LocalFont } from "../lib/localFonts";
+import { importFontDetail, importFontFile } from "../lib/fontImport";
 import { maybeFolderBackup } from "../lib/backupFolder";
+// 删除字体时要让已加载的 FontFace 失效（标本区回落到「不在本机」），入库那侧的失效在 fontImport 里
 import { invalidateFontFace } from "../lib/fontFace";
 import { toast } from "../lib/toast";
-import { assertSupportedTtf } from "@engine/ttf/reader.js";
 import { Button, ConfirmButton, PageHeader, Spinner } from "../components/ui";
 import { IconScanSearch, IconSpark, IconSync, IconTrash } from "../components/Icon";
 import GlyphPreview from "../components/GlyphPreview";
+import LocalDataNotice from "../components/LocalDataNotice";
 
 type LocalMeta = Omit<LocalFont, "data">;
 
@@ -45,7 +47,8 @@ function mergeRows(local: LocalMeta[], cloud: FontInfo[], orders: Array<{ font_i
     map.set(key, {
       // 云端只存哈希与不透明 ID：文件名、字形数、字体名都只在本机
       // （display_name 是历史遗留列，2026-09-17 起不再写入）
-      key, name: f.display_name || "（云端仅存哈希）", sha256: sha, filename: f.display_name || "",
+      // name 留空 = 这份字体本机没有；展示层写人话，不拿哈希顶上
+      key, name: "", sha256: sha, filename: "",
       size: 0, glyphCount: 0, local: false, cloud: true, cloudId: f.font_id, orderCount: 0,
       lastOrderAt: 0,
     });
@@ -105,33 +108,16 @@ export default function Fonts() {
 
   useEffect(() => { void load(); }, [load]);
 
-  /** 存入本机（默认动作：不联网、不登记、不产生任何请求） */
+  /**
+   * 存入本机（默认动作：不联网、不登记、不产生任何请求）
+   * 入库逻辑在 lib/fontImport.ts —— 签发页与「开始使用」引导共用同一处实现。
+   */
   const pickFont = async (f: File | null) => {
     if (!f) return;
     setBusy("pick");
     try {
-      const buf = await f.arrayBuffer();
-      assertSupportedTtf(new Uint8Array(buf));   // OTF/CFF 拒之门外（人话文案）
-      const sha = await sha256Of(buf);
-      const id = sha.slice(0, 16);
-      // 换版本语义（5.6）：同名不同哈希 = 新版本，作为新字体登记，旧版本与历史订单不受影响
-      const sameName = (await listLocalFonts()).find((x) => x.filename === f.name && x.sha256 !== sha);
-      await saveLocalFont({
-        id,
-        name: f.name.replace(/\.(ttf|otf|woff2?)$/i, ""),
-        filename: f.name,
-        sha256: sha,
-        glyphCount: 0,
-        size: f.size,
-        savedAt: Date.now(),
-        data: buf,
-      });
-      invalidateFontFace(id);
-      toast.success(`已存入本机：${f.name}`, {
-        detail: sameName
-          ? `检测到与「${sameName.name}」同名不同版本——已作为新字体登记，旧版本与它的历史订单不受影响`
-          : "未上传、未同步——只保存在你的浏览器里，版本从此锁定",
-      });
+      const r = await importFontFile(f);
+      toast.success(`已存入本机：${f.name}`, { detail: importFontDetail(r) });
       await load();
     } catch (e) {
       toast.error("存入本机失败", { detail: (e as Error).message });
@@ -194,6 +180,8 @@ export default function Fonts() {
         }
       />
 
+      <LocalDataNotice />
+
       {loading ? (
         <div className="loading-block"><Spinner />载入字体库…</div>
       ) : rows.length === 0 ? (
@@ -204,14 +192,15 @@ export default function Fonts() {
       ) : (
         <div className="font-grid" style={{ marginTop: 8 }}>
           {filtered.map((r) => {
-            const fmt = (r.filename.match(/\.([a-z]+)$/i)?.[1] ?? "FONT").toUpperCase();
+            const fmt = r.filename ? (r.filename.match(/\.([a-z]+)$/i)?.[1] ?? "TTF").toUpperCase() : "";
             return (
               <article key={r.key} className="font-card" tabIndex={0}>
                 <span className="font-tech">
                   {[
-                    fmtSize(r.size),
+                    r.local ? fmtSize(r.size) : "",
                     r.glyphCount > 0 ? `${r.glyphCount.toLocaleString("zh-CN")} 字` : "",
-                    r.cloud ? "已同步" : "本机 · 版本已锁定",
+                    // 「已同步」只在本机也有本体时才说得通；只有云端登记的行写「云端登记」
+                    r.local ? (r.cloud ? "已同步" : "本机 · 版本已锁定") : "云端登记",
                   ].filter(Boolean).join(" · ")}
                 </span>
                 <div className="font-specimen">
@@ -220,14 +209,18 @@ export default function Fonts() {
                 <div className="font-foot">
                   <div style={{ minWidth: 0 }}>
                     <div className="font-name-row">
-                      <span className="font-name">{r.name}</span>
-                      <span className="badge badge-neutral">{fmt}</span>
+                      {/* 本机没有这份字体时写人话：名字与文件名都只在本机（字体名 = 文件名去扩展名） */}
+                      <span className="font-name">{r.name || "这份字体不在本机"}</span>
+                      {fmt && <span className="badge badge-neutral">{fmt}</span>}
                     </div>
-                    <div className="font-file mono">{r.filename}</div>
+                    <div className="font-file mono">
+                      {r.filename || `${(r.sha256 || r.key).slice(0, 16)}…`}
+                    </div>
                     <div className="meta">
                       {r.orderCount
                         ? `${r.orderCount} 次签发 · 最近 ${new Date(r.lastOrderAt).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })}`
                         : "还没有签发记录"}{r.savedAt ? ` · 入库 ${new Date(r.savedAt).toLocaleDateString("zh-CN")}` : ""}
+                      {!r.local && " · 恢复后显示字体名"}
                     </div>
                   </div>
                   {/* 悬停操作区：轻量图标（语义与侧栏导航同源：ScanSearch=追溯、FileSignature=签发、

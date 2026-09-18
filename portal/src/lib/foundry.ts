@@ -23,6 +23,7 @@ export const FOUNDRY_KEYS = {
   short: "typeflow_foundry_short",
   site: "typeflow_foundry_site",
   seal: "typeflow_foundry_seal",
+  sealImage: "typeflow_foundry_seal_image",
 } as const;
 
 export interface Foundry {
@@ -32,14 +33,22 @@ export interface Foundry {
   short: string;
   /** 官网（抬头下方一行小字） */
   site: string;
-  /** 印章形状 */
+  /** 印章形状（文字印章用；有图片印章时它不参与渲染） */
   seal: SealShape;
+  /**
+   * 印章图片（data URL；空串 / 缺省 = 没上传）。
+   * ⚠️ 优先级：seal === "none" 不盖章 > 有图片用图片 > 文字印章。
+   * 存这里而不是 IndexedDB 是**故意的**：授权书两个出口都是同步函数
+   * （buildLicenseHtml / LicensePaper 渲染、交付包组包），改成异步取值会把整条链拆散。
+   * 体积由 lib/sealImage.ts 卡在 700KB 以内。
+   */
+  sealImage?: string;
 }
 
 /** 未填时的中性占位（**不是**「文镇」——文书上不该出现平台名） */
 export const LICENSOR_PLACEHOLDER = "（未设置授权方）";
 
-export const EMPTY_FOUNDRY: Foundry = { name: "", short: "", site: "", seal: "round" };
+export const EMPTY_FOUNDRY: Foundry = { name: "", short: "", site: "", seal: "round", sealImage: "" };
 
 function normSeal(v: string | null | undefined): SealShape {
   return v === "square" || v === "none" ? v : "round";
@@ -53,12 +62,17 @@ export function readFoundry(): Foundry {
     short: localStorage.getItem(FOUNDRY_KEYS.short) ?? "",
     site: localStorage.getItem(FOUNDRY_KEYS.site) ?? "",
     seal: normSeal(localStorage.getItem(FOUNDRY_KEYS.seal)),
+    sealImage: localStorage.getItem(FOUNDRY_KEYS.sealImage) ?? "",
   };
 }
 
 /**
  * 写入厂牌。**局部更新语义**：只写传入的键，其余保持原值——
- * 旧备份（v1–v3 的 foundry 段只有 name/short/site）导入时不会把印章形状清掉。
+ *   ① 旧备份（v1–v3 的 foundry 段只有 name/short/site）导入时不会把印章形状与图片清掉；
+ *   ② 传空串 = 明确清除该键（「移除印章图片」走的就是这条路），与「不传 = 不动」区分开。
+ *
+ * ⚠️ 唯一可能失败的地方是配额：印章图片是这里最大的一项，写满 localStorage 时
+ * setItem 会抛 QuotaExceededError。转成人话往外抛，调用方必须接住（否则用户只看到控制台报错）。
  */
 export function writeFoundry(f: Partial<Foundry>): void {
   if (typeof localStorage === "undefined") return;
@@ -66,10 +80,20 @@ export function writeFoundry(f: Partial<Foundry>): void {
     if (v === undefined) return;
     localStorage.setItem(k, v);
   };
-  put(FOUNDRY_KEYS.name, f.name);
-  put(FOUNDRY_KEYS.short, f.short);
-  put(FOUNDRY_KEYS.site, f.site);
-  if (f.seal !== undefined) localStorage.setItem(FOUNDRY_KEYS.seal, normSeal(f.seal));
+  try {
+    put(FOUNDRY_KEYS.name, f.name);
+    put(FOUNDRY_KEYS.short, f.short);
+    put(FOUNDRY_KEYS.site, f.site);
+    if (f.seal !== undefined) localStorage.setItem(FOUNDRY_KEYS.seal, normSeal(f.seal));
+    put(FOUNDRY_KEYS.sealImage, f.sealImage);
+  } catch {
+    throw new Error("本机存储空间不足，厂牌信息（含印章图片）未能保存 —— 换一张更小的印章图片再试");
+  }
+}
+
+/** 是否上传了印章图片（空串 = 已移除）。是否真的盖章还要看 seal !== "none"，见 lib/license.ts */
+export function hasSealImage(f: Foundry): boolean {
+  return !!f.sealImage?.trim();
 }
 
 /** 是否一个字段都没填（签发页据此提示「先设厂牌」） */

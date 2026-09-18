@@ -13,13 +13,15 @@ import { listCustomers } from "../lib/localCustomers";
 import { listOrderNotes, type LocalOrderNote } from "../lib/localOrders";
 import { getLocalFont, getLocalFontData, listLocalFonts, sha256Of } from "../lib/localFonts";
 import { localEmbed, downloadBytes } from "../lib/issuer";
-import { buildDeliveryZip } from "../lib/delivery";
+import { buildDeliveryZip, deliveryPackageName } from "../lib/delivery";
+import { deliveryMailto, type MailMeta } from "../lib/mailto";
 import { readFoundry } from "../lib/foundry";
 import { maybeFolderBackup } from "../lib/backupFolder";
 import { toast } from "../lib/toast";
 import { schemeLabel } from "../lib/schemes";
 import { Modal,  Button, ConfirmButton, PageHeader, Spinner } from "../components/ui";
-import { IconCopy, IconDownload, IconBan } from "../components/Icon";
+import LocalDataNotice from "../components/LocalDataNotice";
+import { IconCopy, IconDownload, IconBan, IconMail } from "../components/Icon";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -58,6 +60,8 @@ const termText = (note: LocalOrderNote | undefined): string => {
 export default function Orders() {
   const [orders, setOrders] = useState<OrderInfo[]>([]);
   const [clientNameById, setClientNameById] = useState<Map<string, string>>(new Map());
+  /** 客户库里的交付邮箱 —— 订单本地关联里没存邮箱的老订单，靠它落到收件人 */
+  const [clientEmailById, setClientEmailById] = useState<Map<string, string>>(new Map());
   const [fontNameById, setFontNameById] = useState<Map<string, string>>(new Map());
   const [localByOrderId, setLocalByOrderId] = useState<Map<string, LocalOrderNote>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -74,6 +78,7 @@ export default function Orders() {
       ]);
       setOrders(o.orders ?? []);
       setClientNameById(new Map(cs.map((c) => [c.id, c.name])));
+      setClientEmailById(new Map(cs.map((c) => [c.id, c.email ?? ""])));
       setLocalByOrderId(new Map(notes.map((n) => [n.orderId, n])));
       setFontNameById(new Map(fonts.map((f) => [f.id, f.name])));
     } catch (e) {
@@ -95,10 +100,14 @@ export default function Orders() {
    * 字体名解析：**一律取本机字体库**。
    * 云端自 2026-09-17 起不再保存字体名（`display_name` 写空串）⇒ `order.font_name` 只会是空，
    * 直接用它会把这列显示成一串 sha16（`font_9ea2d420…`），客户和自己都认不出是哪款字。
-   * 本机没有这份字体（换过设备 / 未添加）时，才退一步用云端登记的旧值，最后才是 font_id。
+   * 本机没有这份字体（换了浏览器 / 换了设备）时**不拿哈希顶上**——那一列写人话，
+   * 完整 font_id 留在 title 与详情弹窗里；恢复本机数据后名字自动回来。
    */
-  const fontName = (o: OrderInfo) =>
-    fontNameById.get(o.font_id.replace(/^font_/, "")) || o.font_name || o.font_id;
+  const localFontName = (o: OrderInfo) => fontNameById.get(o.font_id.replace(/^font_/, ""));
+  /** 可检索的字体文本（含哈希，方便按 sha 片段搜） */
+  const fontName = (o: OrderInfo) => localFontName(o) || o.font_name || o.font_id;
+  /** 渲染用 */
+  const fontLabel = (o: OrderInfo) => localFontName(o) || o.font_name || "字体不在本机";
 
   /** 本地过滤：状态 + 订单号 / 字体 / 客户名 */
   const filtered = useMemo(() => {
@@ -120,6 +129,35 @@ export default function Orders() {
   /** 金额 / 授权方案 / 期限都在本机订单关联（2026-09-17 起云端不含这些字段） */
   const noteOf = (o: OrderInfo) => localByOrderId.get(o.order_id);
   const orderAmount = (o: OrderInfo) => noteOf(o)?.amount;
+
+  /**
+   * 订单页的「邮件发给客户」链接 —— 文案与签发页共用 lib/mailto.ts，不另写一套。
+   *
+   * 收件人：优先用本机订单关联里存的邮箱（签发那一刻记下的），没有就按 clientId 回落客户库
+   * （功能上线前签的那些订单走这条路）。两处都没有 ⇒ 收件人留空，用户在邮件里自己填。
+   * 字体名同样一律取本机字体库；本机没有这份字体时写人话 —— 邮件是发给客户的，
+   * 一串 sha16 对他没有意义。
+   *
+   * ⚠️ 这里只开邮件，**不顺手重算交付包**：重算是有哈希校验语义的动作（见 doRegenerate），
+   * 把它绑进邮件会在重算失败时留下「邮件已发出去、附件却没有」的局面。
+   */
+  const mailUrl = useMemo(() => {
+    if (!selOrder) return "";
+    const note = localByOrderId.get(selOrder.order_id);
+    const email = note?.clientEmail
+      || (note?.clientId ? clientEmailById.get(note.clientId) ?? "" : "");
+    const meta: MailMeta = {
+      orderId: selOrder.order_id,
+      fontName: localFontName(selOrder) || selOrder.font_name || "字体不在本机",
+      licenseType: note?.licenseType ?? "",
+      licenseStart: note?.licenseStart,
+      licenseEnd: note?.licenseEnd,
+      amount: note?.amount,
+      licensor: readFoundry(),
+      issuedAt: new Date(selOrder.updated_at ?? selOrder.created_at).toLocaleString("zh-CN"),
+    };
+    return deliveryMailto(meta, email).url;
+  }, [selOrder, localByOrderId, clientEmailById, fontNameById]);
 
   /** 作废订单（仅未签发可取消；确认+ 级操作） */
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -181,7 +219,7 @@ export default function Orders() {
       if (!data) {
         throw new Error(
           `这台设备上没有该订单的原版字体（${localId.slice(0, 10)}…）。` +
-          "请在「字体库」重新添加同一份字体文件，再回到订单页重试——云端只存哈希，字体从未上传。",
+          "从备份恢复本机数据、或在「字体库」重新添加同一份字体文件后再试——云端只存哈希，字体从未上传。",
         );
       }
       // 防呆：拿错字体会算出一份"看着像却对不上"的交付物，先按哈希前缀卡住
@@ -214,7 +252,7 @@ export default function Orders() {
         nModified: sign.nModified,
         watermarkedFont: sign.fontBytes,
       });
-      downloadBytes(zip, `${order.order_id}_交付包.zip`, "application/zip");
+      downloadBytes(zip, deliveryPackageName(order.order_id), "application/zip");
       maybeFolderBackup();
 
       const receipt = order.watermarked_sha256;
@@ -250,6 +288,8 @@ export default function Orders() {
         }
       />
 
+      <LocalDataNotice />
+
       {/* 状态筛选：下划线式三态 + 全部（与设置页印章形状同一套选择语言） */}
       <div className="choice" role="radiogroup" aria-label="按状态筛选订单" style={{ marginBottom: 18 }}>
         {STATUS_FILTERS.map((f) => (
@@ -278,7 +318,10 @@ export default function Orders() {
               onClick={() => setSel(o.order_id)} role="button" tabIndex={0}>
               <span className="mono" style={{ fontSize: 12 }}>{o.order_id}</span>
               <span>{clientName(o)}</span>
-              <span className="ellipsis" title={fontName(o)}>{fontName(o)}</span>
+              <span className="ellipsis"
+                title={localFontName(o) ? fontName(o) : `字体不在本机 · ${o.font_id}`}>
+                {fontLabel(o)}
+              </span>
               <span style={{ fontSize: 12 }}>{schemeName(noteOf(o))}</span>
               <span style={{ fontSize: 12 }}>{orderAmount(o) ? <>¥ {orderAmount(o)}</> : <span style={{ color: "var(--muted)" }}>—</span>}</span>
               <span className={`status ${STATUS_TONE[o.status] ?? ""}`}>
@@ -304,7 +347,7 @@ export default function Orders() {
             <div className="kv"><div className="kv-k">字体</div>
               <div className="kv-v">
                 <button className="kv-link" onClick={() => navigate("/fonts")}
-                  title="到字体库查看">{fontNameById.get(selOrder.font_id.replace(/^font_/, "")) || selOrder.font_name || "未命名"}</button>
+                  title="到字体库查看">{fontLabel(selOrder)}</button>
                 <span className="mono" style={{ display: "block", fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{selOrder.font_id}</span>
               </div>
             </div>
@@ -355,6 +398,14 @@ export default function Orders() {
               {selOrder.status === "issued" && (
                 <Button variant="primary" disabled={regenBusy} onClick={() => void doRegenerate()}>
                   <IconDownload size={14} />{regenBusy ? "重算中…" : "重新生成交付包"}
+                </Button>
+              )}
+              {/* 邮件发给客户：只开邮件（预填好的），不顺手重算交付包 —— 见 mailUrl 的说明。
+                  导航同步发生在点击手势里，用 location 赋值即可（比异步后再导航稳）。 */}
+              {selOrder.status === "issued" && (
+                <Button disabled={!mailUrl}
+                  onClick={() => { if (mailUrl) window.location.href = mailUrl; }}>
+                  <IconMail size={14} />邮件发给客户
                 </Button>
               )}
               {["recipe_issued", "issued"].includes(selOrder.status) && (
