@@ -559,10 +559,23 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     secBody.includes("导入可疑字体") && secBody.includes("读取自证") && secBody.includes("匹配本机原版")
     && secBody.includes("拉取候选配方") && secBody.includes("比对水印信号")
     && secBody.includes("鉴定书"));
-  // 出网 / 入网口径：清单撤下后，由「数据在哪里」按本机 / 云端分列承担
+  // 出网 / 入网口径：清单撤下后，由「数据在哪里」按本机 / 云端分列承担。
+  // 两列是**穷举** —— 所以断言要钉住「最容易漏、也最有分量」的那几项，
+  // 而且要落在列内（不是整页正文），否则别处的同名文字会给出假通过。
+  const locCols = await page.locator(".loc-grid > div").allTextContents();
   check("数据在哪里按本机 / 云端分列",
-    secBody.includes("本机浏览器") && secBody.includes("文镇云端")
-    && secBody.includes("字体哈希 · 订单号") && secBody.includes("主密钥"));
+    locCols.length === 2 && locCols[0].includes("本机浏览器") && locCols[1].includes("文镇云端")
+    && locCols[1].includes("字体哈希 · 订单号"));
+  check("本机列列出最强承诺（订单备注 / 授权方案与费用 / 追溯历史）",
+    locCols[0].includes("订单备注") && locCols[0].includes("授权方案与费用")
+    && locCols[0].includes("追溯历史") && locCols[0].includes("客户资料"),
+    locCols[0].replace(/\s+/g, " ").slice(0, 60));
+  check("云端列列出账号数据（邮箱与密码派生值）",
+    locCols[1].includes("账号") && locCols[1].includes("密码派生值"),
+    locCols[1].replace(/\s+/g, " ").slice(0, 60));
+  check("账号数据的边界指向《隐私政策》（范围界定）",
+    (await page.locator(".loc-note a[href='/privacy']").count()) === 1
+    && ((await page.locator(".loc-note").first().textContent()) ?? "").includes("账号服务"));
   const scanOk = await page.locator("text=✓ 无网络调用").count();
   check("源码自证扫描通过（3 个纯净文件零网络调用）", scanOk === 3, `实际 ${scanOk} 个`);
   // 修复"自证清单漏掉真正发请求的文件"：api/client.ts 在列，并如实标注为唯一出网通道
