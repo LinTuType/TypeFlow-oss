@@ -5,8 +5,8 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `553de3d8ec8921469ad57ae497d35511d9681792`（branch main，工作树干净） |
-| 导出时间 | 2026-09-18T10:19:40.106Z |
+| 主仓库 commit | `a2e794b4db9a03375b9090cd4ed864512548d64e`（branch main，工作树干净） |
+| 导出时间 | 2026-09-18T11:14:15.781Z |
 | 文件数 | 149 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
@@ -16,7 +16,7 @@
 | LICENSE | `37b726a6c9fec5e7b9570b182158ad3f38c5f12bfb840d9323f821243df4707a` |
 | engine/src/cff/cff2.ts | `5ae31d73f734eaab6b23fc007f69dbd1cadc22e3e8cd5c98288a7601696bd78a` |
 | engine/src/cff/eligible.ts | `869f5fad9fd88e75e544bc622a919834a22127b8f5fddef394beaa3b33fc1aa4` |
-| engine/src/cff/embed.ts | `73156f6acebdc8e2b344f25217e81762ede786705d2562dc2ec3365bc70f2d6e` |
+| engine/src/cff/embed.ts | `05d7c14c52b9132a58d7c4bbb09e244aa5217e368ef3569573525ce69de90581` |
 | engine/src/cff/glyph.ts | `0576651b7d7f8e38bdeb280ee7b2dbf2b839ffcf17076892f1a20862303bbe99` |
 | engine/src/cff/table.ts | `2f71b37a075447fd1586ac39978676cd5a24ac1064ae87b75e268b5b899c922c` |
 | engine/src/cff/token.ts | `5853c7e696a45fb9343dc71d3959480fa14ccec2a954ab6765eddf97548af3f5` |
@@ -26,7 +26,7 @@
 | engine/src/pool.data.generated.ts | `1c851a32fb47a044bbb7624e8cf8e0fefde7a6dd4b44d4072e19f571dce4df6a` |
 | engine/src/pool.ts | `53a157748769abfd740cf9c7f651aff1901c78350614e1d6aa712e631bdfac1e` |
 | engine/src/shiftmap.ts | `554bf05b07f47e81ec271375376cf634c077e4af179082d76f0123b8b09fee16` |
-| engine/src/trace.ts | `810c8912ecefab4579579b8d455cb690283639a8ca75d7dc12c967aced5bf938` |
+| engine/src/trace.ts | `dba2401fcc34cf3d6a48fa333886791a4898da36b6aabf9412c4aca88f6b32f1` |
 | engine/src/ttf/glyf.ts | `9d005d699a78ba065ac1246571fb2671cd6cf1deea96a7951246e8e318749630` |
 | engine/src/ttf/name.ts | `29c68b418d78a35bad669e0653f84c8fb3b0448167c08c8aaa18af13c1261277` |
 | engine/src/ttf/reader.ts | `bf7684139f7bf159e3cdea0f7eacbf2625c3cc816a9ae60fba7795dc270092de` |
@@ -45,7 +45,7 @@
 | engine/tests/fixtures/xingyun-subset.ttf | `dd46e1bcc01487cf4476f61464e6a0ecb8d154f049d9f1ad3086ae67673158d0` |
 | engine/tests/fontPath.ts | `7acf8c13e378cc2eedf95d8d893d6061ecef5a8a38c93334b7bfbfa9d3c6b0f7` |
 | engine/tests/recipe-mode.ts | `8d691daac2f67d7a9c3e0b112077cad442d92d64c746945df8941b8be7daf538` |
-| engine/tests/regression.ts | `c9ce74bdba5be154edf652f56ff4d4ab4c56fead168e8ecd8fc78fa1cc3eab5f` |
+| engine/tests/regression.ts | `377d40bfebf03af2820d2a68154f2ec8c7beef7d7917e27d59987aa73f70b715` |
 | engine/tests/smoke-browser-bundle.ts | `4d0ea122b10fb5a98e52b0610330f3f462c94914ba54feb9668955149fc71085` |
 | engine/tests/stage1.ts | `91df6c54a3f60fea81806f529fa84910fc93022f16015a223feb7480572432bd` |
 | engine/tests/stage2.ts | `ea9edfeba2a014a8a2845e1d52ad792685dd04734ca95a025b22e85e4e0c371a` |
@@ -96,7 +96,7 @@
 | portal/index.html | `07ba8d3957b09dcfde42d873c36afa03645aa4e4f76b371bec724af05d8b3eed` |
 | portal/package.json | `eb905dd65eb551e2bb0fc6e88f86916d1f0aa5ad90eeafa275cb1064dc0e8121` |
 | portal/public/logo.svg | `e676bfb35b7130e39b3a8a93a6de024c3e8a6dc214001a8b3fdec6455d5c979e` |
-| portal/public/typeflow-local-signer.html | `db56321a233c4a210c76ae029a29519bd319c06a411ecce932e07f0584a921d6` |
+| portal/public/typeflow-local-signer.html | `e327911127003a48f7943f3632ffe471e44524dfc2663efda557af7d82e7e928` |
 | portal/src/App.tsx | `355e848a1b0ae288c0e5b3d9ba6dc6bebef6ac675431f2629c27fb73c7767d5d` |
 | portal/src/api/client.ts | `1981e322003d36784dcc5fb68ea32eb39da52b72f0206a36d72921cfac91cb88` |
 | portal/src/components/AppShell.tsx | `00fa8958bd14881f85d54e423e14d2cee9d7eb6bca4f45f0334412cd0881820f` |

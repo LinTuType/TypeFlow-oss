@@ -110,7 +110,18 @@ export function stripNameId256(data: Uint8Array): Uint8Array {
   return data; // 占位：实际剥离在测试里经 writer 完成（避免重复实现 sfnt 重建）
 }
 
-/** 获取某字形当前 xMin（glyf 简单字形） */
+/**
+ * 获取某字形当前 xMin（glyf 简单字形）—— **从实际坐标算，不读字形头里缓存的 bbox**。
+ *
+ * ⚠️ 这一条是 2026-09-18 用 111 份真实字体扫出来的（51 份追溯不到）：
+ * 不少老中文字体（仿宋_GB2312、方正整套、思源黑体静态 OTF…）**字形头里的 bbox 字段是陈旧/错误的**
+ * （实测见到 `xMin=0 yMin=-36 xMax=256 yMax=-36` 这种 yMin==yMax 的不可能值）。
+ * 我们的**写回**会把该字段重算成正确的（`encodeGlyph` 里逐点重算），于是追溯端读缓存值时，
+ * 「位移」= 重算值 − 陈旧值 = −26 / −53 这种随机数 ⇒ 位解码全错 ⇒ 判成「无法确认」。
+ *
+ * 桌面版从一开始就是按实际坐标算的（`watermark/name_table.py · get_glyph_xmin`，
+ * 注释写着「从实际坐标计算，避免缓存值不准确」）—— web 这边漏了，两边不一致。
+ */
 function glyfXMin(raw: TtfRaw, gid: number): number | null {
   // 入口已过 assertSupportedFont；这里仍防御式判空（此前是 ! 断言，OTF 会读到垃圾偏移）
   const glyfOff = raw.tableOffsets.get("glyf");
@@ -130,7 +141,11 @@ function glyfXMin(raw: TtfRaw, gid: number): number | null {
           (raw.data[locaOff + gid * 4 + 2] << 8) | raw.data[locaOff + gid * 4 + 3]) >>> 0);
   const d = raw.data.slice(glyfOff);
   const g = readGlyphRaw(d, p0);
-  return g ? g.xMin : null;
+  if (!g || g.absX.length === 0) return null;
+  // 逐点取最小 x（与桌面版同一口径）；缓存字段 g.xMin 不可信
+  let minX = g.absX[0];
+  for (let i = 1; i < g.absX.length; i++) if (g.absX[i] < minX) minX = g.absX[i];
+  return minX;
 }
 
 /** 逐字形轮廓读取器 —— **容器无关**：glyf 与 CFF/CFF2 都走同一接口 */

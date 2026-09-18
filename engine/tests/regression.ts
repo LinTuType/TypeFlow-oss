@@ -15,6 +15,8 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { embedWatermark, findExistingWatermark } from "../src/embed.js";
+import { traceWatermark } from "../src/trace.js";
+import { verifyOtfOutput } from "../src/cff/embed.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
 import { parseSfnt, parseCmap, assertSupportedFont, TtfParseError } from "../src/ttf/reader.js";
 import { rebuildFont } from "../src/ttf/writer.js";
@@ -29,6 +31,7 @@ import {
 import { FONT_XINGYUN, FIXTURES_DIR, resolveFont } from "./fontPath.js";
 
 const NODE_CRYPTO = createNodeCryptoProvider();
+const be16 = (d: Uint8Array, o: number) => ((d[o] << 8) | d[o + 1]) >>> 0;
 
 const FONT = resolveFont(FONT_XINGYUN);
 const MASTER_KEY = new Uint8Array(
@@ -363,6 +366,87 @@ async function testNameId256Collision(): Promise<void> {
   }
 }
 
+// ───────── 追溯读 xMin 必须"从实际坐标算"（2026-09-18 用 111 份真实字体扫出来的） ─────────
+
+/**
+ * 背景：用本机 111 份真实字体跑「签发 → 追溯」，**51 份追溯不到**（用户在生产上遇到了同一件事）。
+ * 根因之一：`glyfXMin` 读的是**字形头里缓存的 bbox 字段**，而我们的写回会用逐点重算的值覆盖它
+ * （`encodeGlyph`）。于是对那些**缓存 bbox 本来就旧/错**的老中文字体（仿宋_GB2312、方正整套、
+ * 思源黑体的静态 OTF… 实测有 `xMin=0 yMin=-36 xMax=256 yMax=-36` 这种 yMin==yMax 的不可能值），
+ * 追溯端量到的「位移」= 重算值 − 陈旧值 = −26/−53 这种随机数 ⇒ 位解码全错 ⇒ 判成「无法确认」。
+ *
+ * 桌面版从一开始就按实际坐标算（`get_glyph_xmin`，注释写着「避免缓存值不准确」）；web 这边漏了。
+ * 这条测试把它钉住：把缓存 bbox 改错之后，追溯**仍然必须命中**。
+ */
+async function testStaleBboxDoesNotBreakTrace(): Promise<void> {
+  const orig = new Uint8Array(readFileSync(join(FIXTURES_DIR, "xingyun-subset.ttf")));
+  const raw = parseSfnt(orig);
+  const glyfOff = raw.tableOffsets.get("glyf")!;
+  const locaOff = raw.tableOffsets.get("loca")!;
+  const headOff = raw.tableOffsets.get("head")!;
+  const maxpOff = raw.tableOffsets.get("maxp")!;
+  const n = be16(raw.data, maxpOff + 4);
+  const i2l = be16(raw.data, headOff + 50);
+  const glyphData = raw.data.slice(glyfOff, glyfOff + raw.tableLengths.get("glyf")!);
+  const off = (g: number) =>
+    i2l === 0
+      ? be16(raw.data, locaOff + g * 2) * 2
+      : ((raw.data[locaOff + g * 4] << 24) | (raw.data[locaOff + g * 4 + 1] << 16) |
+         (raw.data[locaOff + g * 4 + 2] << 8) | raw.data[locaOff + g * 4 + 3]) >>> 0;
+
+  let patched = 0;
+  for (let g = 1; g < n; g += 3) {
+    const p0 = off(g), p1 = off(g + 1);
+    if (p0 === p1) continue;
+    const nc = (((glyphData[p0] << 8) | glyphData[p0 + 1]) << 16) >> 16;
+    if (nc <= 0) continue;
+    // 只把**缓存 bbox** 的 xMin 改错 1000（点数据一个字不动 ⇒ 模拟「缓存不可信」）
+    const xMin = ((glyphData[p0 + 2] << 8) | glyphData[p0 + 3]) & 0xffff;
+    const bad = (xMin - 1000) & 0xffff;
+    glyphData[p0 + 2] = (bad >> 8) & 0xff;
+    glyphData[p0 + 3] = bad & 0xff;
+    patched++;
+  }
+  const spoofed = assembleSfnt(raw, { glyf: glyphData }, 0).bytes;
+  check("构造样本：把一批字形的缓存 bbox 改错（点数据不动）", patched >= 20, `${patched} 个字形`);
+
+  const orderId = "ORD-BBOX-1";
+  const wm = await embedWatermark({
+    fontData: spoofed, masterKey: MASTER_KEY, provider: NODE_CRYPTO, tenantId: TENANT, orderId,
+  });
+  const tr = await traceWatermark({
+    originalBytes: spoofed, suspiciousBytes: wm.bytes, masterKey: MASTER_KEY,
+    provider: NODE_CRYPTO, tenantId: TENANT, candidateOrders: [orderId],
+  });
+  check("缓存 bbox 不可信的字体仍能追溯命中（读点，不读缓存）",
+    tr.matchedOrder === orderId, `matched=${tr.matchedOrder} conf=${tr.confidence.toFixed(3)}`);
+  check("判定为 high/trusted", tr.verdict.level === "high" || tr.verdict.level === "trusted", tr.verdict.level);
+}
+
+// ───────── OTF 产物结构自检：坏产物必须**拒绝签发**，绝不交付 ─────────
+
+/**
+ * 2026-09-18 用户报「OTF 签发能用、追溯不到」查出来的第二个 bug：
+ * fontkit 的 CFF 写出对**部分真实字体**（带 local subrs 的 CID-keyed CFF，如 SourceHanSansCN-Regular.OTF）
+ * 会把产物写坏 —— 独立实现 fontTools 复画时约**一半字形抛 `ValueError: not enough values to unpack`**，
+ * 我们读 xMin 也有 90% 返回 null。这种字体**必须拒绝签发**，而不是交付一份坏字体。
+ */
+async function testOtfOutputGuard(): Promise<void> {
+  const fixture = new Uint8Array(readFileSync(join(FIXTURES_DIR, "tsuku-subset.otf")));
+  const wm = await embedWatermark({
+    fontData: fixture, masterKey: MASTER_KEY, provider: NODE_CRYPTO, tenantId: TENANT, orderId: "ORD-GUARD-1",
+  });
+  const good = verifyOtfOutput(fixture, wm.bytes);
+  check("我们自己的 OTF 产物通过结构自检（不误伤）", good.ok,
+    `原件读不出 ${(good.inBadRate * 100).toFixed(0)}% → 产物 ${(good.outBadRate * 100).toFixed(0)}%（抽样 ${good.sampled}）`);
+
+  // 拿一个 TTF 冒充「OTF 产物」：自检自己跑不起来 ⇒ 必须走 fail-closed（拒绝而不是放行）
+  let refused = false;
+  const ttfBytes = new Uint8Array(readFileSync(join(FIXTURES_DIR, "xingyun-subset.ttf")));
+  try { verifyOtfOutput(fixture, ttfBytes); } catch { refused = true; }
+  check("自检跑不起来时 fail closed（拒绝，而不是放行）", refused);
+}
+
 
 /**
  * 批次 A 的机器证明 + **交付回执的可重算性**。
@@ -427,6 +511,12 @@ function testTtfGoldHashes(): void {
 
   console.log("\n── Name ID 256 撞号（可变字体轴实例名） ──");
   await testNameId256Collision();
+
+  console.log("\n── 追溯读 xMin：读点而不是读缓存 bbox ──");
+  await testStaleBboxDoesNotBreakTrace();
+
+  console.log("\n── OTF 产物结构自检（坏产物拒绝签发） ──");
+  await testOtfOutputGuard();
 
   console.log(`\n通过 ${pass} / ${pass + fail}`);
   process.exit(fail > 0 ? 1 : 0);

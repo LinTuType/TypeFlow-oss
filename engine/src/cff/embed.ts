@@ -88,5 +88,58 @@ export async function embedWatermarkOtf(params: EmbedParams): Promise<EmbedResul
     name: newName,
   }, nModified).bytes;
 
+  // ── 产物结构自检：**画不出来就拒绝签发**，绝不把损坏的字体交给客户 ──
+  //
+  // 为什么必须守这道门（2026-09-18 用户报「签发能用、追溯不到」查出来的）：
+  // 我们只换 CharStrings INDEX、其余结构逐字节照搬，所以唯一的风险是"序列化器有没有把
+  // **绝对偏移**算对"。实测 fontkit 的 CFF 写出**对部分真实字体算不对**（带 local subrs 的
+  // CID-keyed CFF，如 SourceHanSansCN-Regular.OTF）：独立实现 fontTools 复画时约**一半字形
+  // 抛 `ValueError: not enough values to unpack`**，我们自己的读取器也大面积返回 null
+  // ⇒ 追溯必然读不出字距位移，交付出去的字体也是坏的。
+  // 这类字体在修好写出路径之前**一律拒绝**（用户能看到人话，而不是拿到坏字体或莫名其妙的"追溯不到"）。
+  let sanity: { ok: boolean; inBadRate: number; outBadRate: number; sampled: number; internalError?: string };
+  try {
+    sanity = verifyOtfOutput(fontData, bytes);
+  } catch (e) {
+    // 自检自己跑不起来时**同样拒绝**（fail closed）：宁可让用户看到一句人话，
+    // 也不要把「没验过」的产物当合格品交付出去。
+    sanity = { ok: false, inBadRate: 0, outBadRate: 1, sampled: 0, internalError: String((e as Error).message) };
+  }
+  if (!sanity.ok) {
+    throw new Error(
+      sanity.internalError
+        ? `这份 OTF 暂不支持签发：产物的结构自检没能完成（${sanity.internalError.slice(0, 60)}）。为避免交付损坏的字体，已中止签发。`
+        : `这份 OTF 暂不支持签发：写出后约 ${(sanity.outBadRate * 100).toFixed(0)}% 的字形读不出轮廓`
+          + `（原件只有 ${(sanity.inBadRate * 100).toFixed(0)}%），说明该字体的 CFF 结构我们还没能正确重建。`
+          + "为避免交付损坏的字体，已中止签发；请改用同款 TTF，或把这款字体发给我们以支持它。",
+    );
+  }
   return { bytes, nModified, selection, nameId256, degraded: assigns.degraded };
+}
+
+/**
+ * OTF 产物结构自检：抽样比"读不出轮廓"的字形比例。
+ *
+ * 判据用**相对恶化**而不是绝对值：有些字体本身就有一批空字形（读不出是正常的），
+ * 只要产物没有比原件明显变差就算通过。
+ */
+export function verifyOtfOutput(
+  inputBytes: Uint8Array,
+  outputBytes: Uint8Array,
+): { ok: boolean; inBadRate: number; outBadRate: number; sampled: number } {
+  const a = openCff(parseSfnt(inputBytes)).font;
+  const b = openCff(parseSfnt(outputBytes)).font;
+  const n = Math.min(a.numGlyphs, b.numGlyphs);
+  const step = Math.max(1, Math.floor(n / 400));   // 最多抽样 ~400 个字形
+  let inBad = 0, outBad = 0, sampled = 0;
+  for (let g = 1; g < n; g += step) {
+    sampled++;
+    if (a.glyphXMin(g) === null) inBad++;
+    if (b.glyphXMin(g) === null) outBad++;
+  }
+  const inBadRate = inBad / Math.max(sampled, 1);
+  const outBadRate = outBad / Math.max(sampled, 1);
+  // 允许 5 个百分点的余量（重编码后个别字形判空属于正常波动）
+  const ok = outBadRate <= Math.min(Math.max(inBadRate + 0.05, 0.10), 0.5);
+  return { ok, inBadRate, outBadRate, sampled };
 }
