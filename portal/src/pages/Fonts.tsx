@@ -170,7 +170,7 @@ export default function Fonts() {
           <>
             <input className="search" value={q} onChange={(e) => setQ(e.target.value)}
               placeholder="搜索字体" aria-label="搜索字体" />
-            <input ref={fileRef} type="file" accept=".ttf,font/ttf" className="hidden-file"
+            <input ref={fileRef} type="file" accept=".ttf,.otf,font/ttf,font/otf" className="hidden-file"
               onChange={(e) => void pickFont(e.target.files?.[0] ?? null)} />
             <Button variant="primary" disabled={busy === "pick"} busy={busy === "pick"}
               onClick={() => fileRef.current?.click()}>

@@ -34,11 +34,20 @@ export const FIXTURES_DIR = join(ROOT, "engine", "tests", "fixtures");
 const SUBSET_MAP: Record<string, string> = {
   "xingyun-Regular.ttf": "xingyun-subset.ttf",
   "HYBuDaiXiongBasicW.ttf": "hybudai-subset.ttf",
+  // OTF（CFF1）样本：由 fontTools 子集化而来，码点集合与 xingyun-subset 一致
+  "FOT-TsukuAOldMinPr6N-L.otf": "tsuku-subset.otf",
+  // OTF（CFF2，可变）样本：来自本机 ~/Library/Fonts/SourceHanSansSC-VF.otf，
+  // 保留 fvar/HVAR/VVAR/avar/STAT（否则"可变 OTF 也能签"没有样本可验）
+  "SourceHanSansSC-VF.otf": "sourcehan-cff2-subset.otf",
 };
 
 /** 测试用到的两个样本字体（真名，喂给 resolveFont） */
 export const FONT_XINGYUN = "xingyun-Regular.ttf";
 export const FONT_HYBUDAI = "HYBuDaiXiongBasicW.ttf";
+/** OTF（CFF1 轮廓）样本：真实日文商业字库的子集 */
+export const FONT_TSURU_OTF = "FOT-TsukuAOldMinPr6N-L.otf";
+/** OTF（CFF2 轮廓、可变）样本：思源黑体 SC 可变版，单轴 wght 250–900 */
+export const FONT_SOURCEHAN_CFF2 = "SourceHanSansSC-VF.otf";
 
 /**
  * 解析某个样本字体的实际路径。

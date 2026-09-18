@@ -9,6 +9,7 @@
  */
 
 import { STORE, dbGet, dbPut, dbDelete, dbGetAll, openDb, dbClear } from "./db";
+import type { FontContainer } from "./localFonts";
 
 export interface LocalOrderNote {
   /** 云端订单 ID（ORD-YYYYMMDD-NNN） */
@@ -29,6 +30,14 @@ export interface LocalOrderNote {
   /** 授权期限起止（ms）；都缺省 = 永久。期限是文书约定，不是技术锁，只存本机 */
   licenseStart?: number;
   licenseEnd?: number;
+  /**
+   * 原版字体的轮廓容器（签发那一刻记下）。
+   *
+   * 为什么存在订单关联里而不是现查字体库：订单页重发邮件时**可能本机已经没有那份字体了**
+   * （换设备、清理过数据），而交付文件名里的扩展名（`.ttf` / `.otf`）必须与当初交付的一致 ——
+   * 客户是按邮件里那个名字去找文件的。
+   */
+  fontContainer?: FontContainer;
   updatedAt: number;
 }
 

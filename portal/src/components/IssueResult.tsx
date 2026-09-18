@@ -16,7 +16,8 @@ import { useMemo } from "react";
 import { downloadBytes } from "../lib/issuer";
 import { buildLicenseHtml, printLicenseHtml } from "../lib/license";
 import {
-  buildDeliveryZip, deliveryPackageName, licenseDataOf, watermarkedFontName, type DeliveryMeta,
+  buildDeliveryZip, deliveryPackageName, fontFileExt, fontFileMime, licenseDataOf, watermarkedFontName,
+  type DeliveryMeta,
 } from "../lib/delivery";
 import { deliveryMailto } from "../lib/mailto";
 import { readFoundry } from "../lib/foundry";
@@ -36,13 +37,16 @@ function useDelivery(outcome: IssueOutcome) {
     nModified: sign.nModified,
     watermarkedFont: sign.fontBytes,
   };
+  /** 交付物的扩展名按**水印字体字节**判定：OTF 就交 OTF，不改名叫 .ttf */
+  const fontExt = fontFileExt(sign.fontBytes);
   /** 交付邮件：收件人取客户库里的邮箱（签发时带过来的），客户端缺就留空自己填 */
-  const { url: mailUrl } = deliveryMailto(meta, clientEmail);
+  const { url: mailUrl } = deliveryMailto({ ...meta, fontExt }, clientEmail);
   return {
     sign,
     mailUrl,
     /** 文件名 = 原版字体名 + 订单号（与交付包内那份逐字一致，见 lib/delivery.ts） */
-    downloadFont: () => downloadBytes(sign.fontBytes, watermarkedFontName(fontName, orderId), "font/ttf"),
+    downloadFont: () =>
+      downloadBytes(sign.fontBytes, watermarkedFontName(fontName, orderId, fontExt), fontFileMime(fontExt)),
     /** 交付包：水印字体 + 授权书 + 使用说明 + 指纹，一次下载齐全 */
     downloadPackage: () => downloadBytes(buildDeliveryZip(meta), deliveryPackageName(orderId), "application/zip"),
     printLicense: () => printLicenseHtml(buildLicenseHtml(licenseDataOf(meta))),

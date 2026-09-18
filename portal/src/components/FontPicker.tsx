@@ -37,7 +37,7 @@ export default function FontPicker({
         )}
       </div>
 
-      <input ref={fileRef} type="file" accept=".ttf,font/ttf" title="仅支持 TTF（暂不支持 OTF/CFF）" className="hidden-file"
+      <input ref={fileRef} type="file" accept=".ttf,.otf,font/ttf,font/otf" title="支持 TTF / OTF（含可变字体）" className="hidden-file"
         onChange={(e) => {
           onImport(e.target.files?.[0] ?? null);
           if (fileRef.current) fileRef.current.value = "";   // 同名文件二次选择也能触发

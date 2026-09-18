@@ -33,6 +33,13 @@ export interface MailMeta {
   amount?: string;
   licensor: Foundry;
   issuedAt: string;
+  /**
+   * 水印字体的扩展名（`.ttf` / `.otf`）。**正文要点名附件里的文件名**，所以要跟交付包内那份一致。
+   *
+   * 缺省时按 `ttf` 渲染：只有"老订单 + 本机既没有该字体、订单关联里也没记容器"才会走到，
+   * 而那种情况下邮件本来就只是一个联系入口（收件人、附件都要用户自己补）。
+   */
+  fontExt?: "ttf" | "otf";
 }
 
 export interface DeliveryMail {
@@ -59,7 +66,7 @@ const URL_SAFE_MAX = 1800;
  */
 export function buildDeliveryMail(meta: MailMeta): DeliveryMail {
   const zip = deliveryPackageName(meta.orderId);
-  const fontFile = watermarkedFontName(meta.fontName, meta.orderId);
+  const fontFile = watermarkedFontName(meta.fontName, meta.orderId, meta.fontExt ?? "ttf");
 
   /* 有序信息行：客户核对全靠这几行。
      两条可有可无的行按「有才写」处理 —— 老订单（本机关联里没有授权方案）与免填费用

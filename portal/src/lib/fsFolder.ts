@@ -14,7 +14,8 @@
  */
 
 import { STORE, dbGet, dbPut, dbDelete } from "./db";
-import { listLocalFonts, saveLocalFont, sha256Of, type LocalFont } from "./localFonts";
+import { listLocalFonts, saveLocalFont, sha256Of, type FontContainer, type LocalFont } from "./localFonts";
+import { assertSupportedFont } from "@engine/ttf/reader.js";
 
 /** 统一句柄 key（握手段 handles store） */
 export const FOLDER_KEY = "local";
@@ -141,12 +142,20 @@ export async function scanFontFolder(): Promise<FolderScanResult> {
   const values = (handle as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values();
   for await (const entry of values) {
     if (entry.kind !== "file") continue;
-    // 与单个导入（Fonts.tsx 的 assertSupportedTtf）保持一致：OTF/CFF 引擎不支持，
-    // 扫进来只会在签发或追溯时才报错。这里就挡掉，别让它们进库。
-    if (!/\.ttf$/i.test(entry.name)) continue;
+    // 与单个导入走同一道校验：不是受支持的字体（.ttc / WOFF / WOFF2 / 未知 sfnt）挡在外面，
+    // 别让它们进库后在签发或追溯时才报错。判据是**文件内容**，不是扩展名 ——
+    // 扩展名写错的文件（真 OTF 叫 .ttf 之类）也能被正确识别。
+    if (!/\.(ttf|otf)$/i.test(entry.name)) continue;
     result.total++;
     const file = await (entry as FileSystemFileHandle).getFile();
     const buf = await file.arrayBuffer();
+    let container: FontContainer;
+    try {
+      container = assertSupportedFont(new Uint8Array(buf));
+    } catch {
+      result.skipped++;
+      continue;
+    }
     const sha = await sha256Of(buf);
     const id = sha.slice(0, 16);
     if (existing.has(id)) {
@@ -162,6 +171,7 @@ export async function scanFontFolder(): Promise<FolderScanResult> {
       size: file.size,
       savedAt: Date.now(),
       data: buf,
+      container,
     };
     await saveLocalFont(font);
     result.added.push(entry.name);

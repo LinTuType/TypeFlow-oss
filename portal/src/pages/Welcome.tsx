@@ -223,16 +223,16 @@ export default function Welcome() {
     if (k === "font") {
       return (
         <>
-          <input ref={fontRef} type="file" hidden accept=".ttf,font/ttf" aria-label="选择字体文件"
+          <input ref={fontRef} type="file" hidden accept=".ttf,.otf,font/ttf,font/otf" aria-label="选择字体文件"
             onChange={(e) => void doImport(e.target.files?.[0] ?? null)} />
           <p className="note">
-            选一个 TTF 文件即可入库 —— 文件在本机读取、在本机计算哈希，版本从此锁定（同名换版会作为新字体登记）。
+            选一个 TTF / OTF 文件即可入库 —— 文件在本机读取、在本机计算哈希，版本从此锁定（同名换版会作为新字体登记）。
           </p>
           <div className="btn-row">
             <Button size="sm" variant={s?.done ? "secondary" : "primary"} disabled={busy !== ""}
               onClick={() => fontRef.current?.click()}>
               {busy === "font" ? <Spinner size={12} /> : null}
-              选择 TTF 文件
+              选择字体文件
             </Button>
             {folderName && (
               <Button size="sm" disabled={busy !== ""} onClick={() => void doScan()}>

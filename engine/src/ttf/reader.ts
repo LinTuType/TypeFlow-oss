@@ -82,36 +82,64 @@ export function parseSfnt(buf: Uint8Array): TtfRaw {
   return { sfntVersion, tableOffsets, tableLengths, data: buf };
 }
 
+/** 轮廓容器类型 —— 决定走哪条水印路径 */
+export type OutlineKind = "glyf" | "cff" | "cff2";
+
+const MAGIC_TTCF = 0x74746366; // 'ttcf'
+const MAGIC_WOFF = 0x774f4646; // 'wOFF'
+const MAGIC_WOFF2 = 0x774f4632; // 'wOF2'
+
+/** 判定轮廓容器；null = 既不是 glyf 也不是 CFF/CFF2（我们处理不了） */
+export function detectOutlineKind(raw: TtfRaw): OutlineKind | null {
+  const hasGlyf = raw.tableOffsets.has("glyf") && raw.tableOffsets.has("loca");
+  const hasCff = raw.tableOffsets.has("CFF ");
+  const hasCff2 = raw.tableOffsets.has("CFF2");
+  if (hasCff && hasCff2) return null; // 两张轮廓表同时存在：语义不明，不猜
+  if (hasGlyf) return hasCff || hasCff2 ? null : "glyf";
+  if (hasCff2) return "cff2";
+  if (hasCff) return "cff";
+  return null;
+}
+
 /**
- * 产品化格式校验：必须是可嵌入/可追溯的 TrueType 字体（glyf 轮廓）。
+ * 产品化格式校验 —— 返回轮廓容器类型（调用方据此分派）。
  *
- * 为什么在引擎入口做：OTF/CFF 之前会以两种糟糕的方式失败——
- *   签发路径：writer 缺表时抛「缺少 glyf 表」（技术文案，设计师看不懂）；
- *   追溯路径：glyphXMin 直接 tableOffsets.get("glyf")! 读到垃圾偏移，给出无意义判定。
- * 现在入口即拒绝，报「人话」。
+ * 支持范围（两维）：
+ *   - **轮廓方言**：glyf（TTF）与 CFF/CFF2（OTF）都可
+ *   - **字形变体机制**：静态与可变（`fvar/gvar`）都可 —— gvar 的增量叠加在默认轮廓上，
+ *     默认轮廓整体平移 ⇒ 每个实例都整体平移，增量不需要重算（前提：hmtx.lsb 同步，见 sfnt.ts）
+ * 明确不支持：**打包外壳**（TTC / WOFF / WOFF2）与 CFF2 之外的其他未知 sfnt。
+ *
+ * ⚠️ 拒绝文案必须给得出**用户真能做的下一步**，否则等于让用户干瞪眼。
  */
-export function assertSupportedTtf(buf: Uint8Array): void {
+export function assertSupportedFont(buf: Uint8Array): OutlineKind {
   if (buf.length >= 4) {
     const v = be32(buf, 0);
-    if (v === 0x4f54544f /* 'OTTO' */) {
-      throw new TtfParseError("暂不支持 OTF/CFF 字体——请改用 TTF 格式后再试");
+    if (v === MAGIC_TTCF) {
+      throw new TtfParseError("暂不支持字体集合（.ttc）——请导出单个字体文件后再试");
     }
-    if (v === 0x74746366 /* 'ttcf' */) {
-      throw new TtfParseError("暂不支持字体集合（.ttc）——请导出单个 TTF 文件后再试");
+    if (v === MAGIC_WOFF) {
+      throw new TtfParseError("暂不支持 WOFF 字体（它是压缩外壳）——请改用未压缩的 TTF / OTF");
+    }
+    if (v === MAGIC_WOFF2) {
+      throw new TtfParseError("暂不支持 WOFF2 字体（它是压缩外壳）——请改用未压缩的 TTF / OTF");
     }
   }
   const raw = parseSfnt(buf);
-  for (const t of ["glyf", "loca", "head", "maxp"]) {
+  for (const t of ["head", "maxp", "hmtx", "name"]) {
     if (!raw.tableOffsets.has(t)) {
-      throw new TtfParseError(`不是受支持的 TTF 字体（缺少 ${t} 表）。暂不支持 OTF/CFF——请改用 TTF 格式`);
+      throw new TtfParseError(`不是受支持的字体（缺少 ${t} 表）`);
     }
   }
-  // 可变字体（fvar + gvar）：我们只改 glyf 的坐标，不重算 gvar 里的增量数据，
-  // 于是非默认实例的轮廓会错乱，而用户完全无感知。宁可明确拒绝，也不交付坏字体。
-  if (raw.tableOffsets.has("fvar") || raw.tableOffsets.has("gvar")) {
-    throw new TtfParseError("暂不支持可变字体（含 fvar/gvar）——请在字体软件里导出静态实例后再试");
+  const kind = detectOutlineKind(raw);
+  if (kind === null) {
+    throw new TtfParseError("不是受支持的字体——轮廓表既不是 glyf（TTF）也不是 CFF/CFF2（OTF）");
   }
+  return kind;
 }
+
+/** @deprecated 旧名。已支持 OTF/CFF，改用 `assertSupportedFont`（返回轮廓容器类型）。 */
+export const assertSupportedTtf = assertSupportedFont;
 
 /**
  * 读取 4 字节 table tag（用于判读表名）

@@ -21,6 +21,20 @@ export interface LocalFont {
   size: number;
   savedAt: number;
   data: ArrayBuffer;       // 字体文件本体（仅存本机）
+  /**
+   * 轮廓容器（入库时判定）。决定交付文件的扩展名与 MIME —— OTF 进就该 OTF 出。
+   * 老记录没有这个字段 ⇒ 交付侧一律用**字节嗅探**（`delivery.fontFileExt`）作准，
+   * 它不依赖这条记录，字段只用来省一次读取。
+   */
+  container?: FontContainer;
+}
+
+/** 轮廓容器（与引擎 `OutlineKind` 同构；`glyf` = TTF，`cff`/`cff2` = OTF） */
+export type FontContainer = "glyf" | "cff" | "cff2";
+
+/** 容器 → 交付文件扩展名（唯一映射点；`ttf`/`otf` 两个出口都从这里取） */
+export function containerExt(c: FontContainer | undefined): "ttf" | "otf" {
+  return c === "cff" || c === "cff2" ? "otf" : "ttf";
 }
 
 /** 计算文件 SHA-256（WebCrypto） */

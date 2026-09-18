@@ -32,17 +32,37 @@ export interface DeliveryMeta {
 }
 
 /**
+ * 水印字体的容器扩展名 —— **按源文件决定**（OTF 进、OTF 出，不悄悄转成 TTF，
+ * 与桌面版 `output_format="keep"` 一个口径）。
+ *
+ * 判据是 sfnt 头四个字节：`OTTO` = CFF/CFF2 轮廓；其余（`0x00010000` / `true`）按 TTF。
+ * 解析失败时按 `ttf` 兜底 —— 调用方拿到的一定是我们自己刚签出来的字体，不可能是陌生人。
+ */
+export function fontFileExt(bytes: Uint8Array): "ttf" | "otf" {
+  return bytes.length >= 4 && bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f
+    ? "otf"
+    : "ttf";
+}
+
+/** 交付/下载用的 MIME —— 与 `fontFileExt` 成对，别在两处各写一遍 */
+export function fontFileMime(ext: "ttf" | "otf"): string {
+  return ext === "otf" ? "font/otf" : "font/ttf";
+}
+
+/**
  * 水印字体的交付文件名 = **原版字体名 + 订单号**（用户口径 2026-09-18）。
  *
- * 为什么字体名放前面：拿到文件的先是客户。客户自己的字体文件夹里躺着几十个 ttf，
+ * 为什么字体名放前面：拿到文件的先是客户。客户自己的字体文件夹里躺着几十个字体文件，
  * 「订单号_watermarked」对他是无意义的串；字体名在前，一眼认出是哪款字、哪一单，
  * 按名排序时同一款字的多单也自动聚在一起。订单号仍在名里 —— 追溯与核对不受影响。
  *
  * ⚠️ 这里是**唯一**的命名点：单文件下载、交付包内条目、使用说明里的核验命令
  * 都调它。改口径只改这一处（两个出口对不上，客户按说明书敲命令就会对不上文件名）。
+ *
+ * @param fontExt 扩展名，由 `fontFileExt(水印字体字节)` 给出（OTF 不能改名叫 .ttf）
  */
-export function watermarkedFontName(fontName: string, orderId: string): string {
-  return `${safeFileNamePart(fontName)}_${orderId}.ttf`;
+export function watermarkedFontName(fontName: string, orderId: string, fontExt: "ttf" | "otf"): string {
+  return `${safeFileNamePart(fontName)}_${orderId}.${fontExt}`;
 }
 
 /**
@@ -87,7 +107,8 @@ export function licenseDataOf(meta: DeliveryMeta): LicenseData {
 
 /** 使用说明（纯文本，客户/客户的设计师直接能读） */
 export function usageText(meta: DeliveryMeta): string {
-  const fontFile = watermarkedFontName(meta.fontName, meta.orderId);
+  const ext = fontFileExt(meta.watermarkedFont);
+  const fontFile = watermarkedFontName(meta.fontName, meta.orderId, ext);
   return `文镇 TypeFlow 交付包 · 使用说明
 ========================================
 
@@ -108,7 +129,7 @@ ${meta.amount ? `授权费用：¥ ${meta.amount}\n` : ""}签发时间：${meta.
 
 怎么用
 ----------------------------------------
-· 安装字体：Windows 双击 .ttf → 点「安装」；macOS 双击 → 点「安装字体」。
+· 安装字体：Windows 双击 .${ext} → 点「安装」；macOS 双击 → 点「安装字体」。
 · 拿到 PDF 授权书：双击打开「字体授权书.html」，用浏览器打印（Cmd/Ctrl + P），
   在打印对话框里选择「另存为 PDF」。
 · 存档建议：把整份 zip 和发票、合同存放在一起；授权书与订单号一一对应。
@@ -162,7 +183,10 @@ export function buildDeliveryZip(meta: DeliveryMeta): Uint8Array {
   const licenseHtml = buildLicenseHtml(licenseDataOf(meta));
   const enc = new TextEncoder();
   const entries: ZipEntry[] = [
-    { name: watermarkedFontName(meta.fontName, meta.orderId), data: meta.watermarkedFont },
+    {
+      name: watermarkedFontName(meta.fontName, meta.orderId, fontFileExt(meta.watermarkedFont)),
+      data: meta.watermarkedFont,
+    },
     { name: "字体授权书.html", data: enc.encode(licenseHtml) },
     { name: "使用说明.txt", data: enc.encode(usageText(meta)) },
     { name: "签发指纹.txt", data: enc.encode(fingerprintText(meta)) },

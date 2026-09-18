@@ -11,17 +11,22 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 
-import { embedWatermark } from "../src/embed.js";
+import { embedWatermark, findExistingWatermark } from "../src/embed.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
-import { parseSfnt, parseCmap, assertSupportedTtf, TtfParseError } from "../src/ttf/reader.js";
+import { parseSfnt, parseCmap, assertSupportedFont, TtfParseError } from "../src/ttf/reader.js";
+import { rebuildFont } from "../src/ttf/writer.js";
+import { parseNameTable, looksLikeWatermark } from "../src/ttf/name.js";
+import { assembleSfnt } from "../src/ttf/sfnt.js";
 import {
   decodeSimpleGlyph,
   encodeGlyph,
   readLocaOffsets,
   type GlyphData,
 } from "../src/ttf/glyf.js";
-import { FONT_XINGYUN, resolveFont } from "./fontPath.js";
+import { FONT_XINGYUN, FIXTURES_DIR, resolveFont } from "./fontPath.js";
 
 const NODE_CRYPTO = createNodeCryptoProvider();
 
@@ -217,7 +222,7 @@ function testParseBounds(): void {
   const real = new Uint8Array(readFileSync(FONT));
   let realOk = true, mapSize = 0;
   try {
-    assertSupportedTtf(real);
+    assertSupportedFont(real);
     mapSize = parseCmap(parseSfnt(real)).map.size;
   } catch { realOk = false; }
   // 阈值刻意取小：CI 用仓库内子集样本（477 条映射），本机用全量样本（9311 条）。
@@ -256,20 +261,152 @@ async function testReSignAndHeader(): Promise<void> {
     err instanceof Error ? err.message.slice(0, 40) : "未抛错（会静默毁掉前一份订单的可追溯性）");
 }
 
-// ───────────── P1-10：可变字体 ─────────────
+// ───────────── P1-10：可变字体（fvar/gvar）受理 ─────────────
 
-function testVariableFontRejected(): void {
+/**
+ * 旧行为：`fvar/gvar` 明确拒绝。
+ * 新行为（2026-09-18 实测后放开）：**受理**。理由不是"看起来没事"，而是有机械依据 ——
+ * gvar 的增量叠加在**默认轮廓**上，默认轮廓整体平移 ⇒ 每个实例都整体平移，增量不必重算。
+ * 实测：NotoSansSyriac（单轴）30/30、SFNS（四轴、7 个实例）280/280 逐点位移恰好 ±2。
+ *
+ * ⚠️ 成败点是 `hmtx.lsb` 必须同步（`sfnt.ts · rebuildHmtx` 已保证）：
+ *    只改坐标不改 lsb 时，渲染/排版路径会按 `lsb − xMin` 把位移**抵消成 0**（实测）。
+ */
+function testVariableFontAccepted(): void {
   const mk = (tag: string, len = 4) => ({ tag, bytes: new Uint8Array(len) });
-  const base = [mk("glyf"), mk("loca"), mk("head"), mk("maxp")];
-  let staticOk = true, fvarRejected = false, gvarRejected = false;
-  try { assertSupportedTtf(craftFont(base)); } catch { staticOk = false; }
-  try { assertSupportedTtf(craftFont([...base, mk("fvar", 16)])); }
-  catch (e) { fvarRejected = e instanceof TtfParseError && e.message.includes("可变字体"); }
-  try { assertSupportedTtf(craftFont([...base, mk("gvar", 20)])); }
-  catch (e) { gvarRejected = e instanceof TtfParseError && e.message.includes("可变字体"); }
-  check("静态 TTF 仍受支持、fvar/gvar 明确拒绝（此前会静默交付错乱轮廓）",
-    staticOk && fvarRejected && gvarRejected,
-    `静态=${staticOk} fvar=${fvarRejected} gvar=${gvarRejected}`);
+  const base = [mk("glyf"), mk("loca"), mk("head"), mk("maxp"), mk("hmtx"), mk("name")];
+  let staticOk = false, fvarOk = false, gvarOk = false, bothOk = false, ttcRejected = false;
+  try { assertSupportedFont(craftFont(base)); staticOk = true; } catch { /* 不算过 */ }
+  try { assertSupportedFont(craftFont([...base, mk("fvar", 16)])); fvarOk = true; } catch { /* 不算过 */ }
+  try { assertSupportedFont(craftFont([...base, mk("gvar", 20)])); gvarOk = true; } catch { /* 不算过 */ }
+  try { assertSupportedFont(craftFont([...base, mk("fvar", 16), mk("gvar", 20)])); bothOk = true; } catch { /* 不算过 */ }
+  // 反向：字体集合仍然明确拒绝（外壳维度不支持）
+  const ttc = craftFont(base);
+  new DataView(ttc.buffer, ttc.byteOffset, ttc.byteLength).setUint32(0, 0x74746366);
+  try { assertSupportedFont(ttc); } catch (e) { ttcRejected = e instanceof TtfParseError && e.message.includes("字体集合"); }
+
+  check("静态 TTF 受支持，fvar/gvar 已受理（默认轮廓平移 ⇒ 每个实例都平移）",
+    staticOk && fvarOk && gvarOk && bothOk,
+    `静态=${staticOk} fvar=${fvarOk} gvar=${gvarOk} 两者都有=${bothOk}`);
+  check("字体集合（.ttc）仍明确拒绝", ttcRejected,
+    ttcRejected ? "抛出 TtfParseError（人话文案）" : "未按预期拒绝");
+}
+
+// ───────────── Name ID 256 撞号：可变字体的轴实例名（2026-09-18 实测发现） ─────────────
+
+/**
+ * OpenType 规定 256–32767 是"字体自定义"区间，而**可变字体的轴实例名正好从这里开始** ——
+ * 实测 `SourceHanSansSC-VF.otf` 的 `(3,1,1033,256)` 就是默认实例名 `Regular`（一直到 279）。
+ *
+ * 旧实现按编号判水印（`nameID === 256 && platformID === 3`）⇒ 后果有两个：
+ *   ① **可变字体一台都签不了**：被判成"这份字体已经带水印"，直接拒绝；
+ *   ② 写回时把**所有** 256 记录都删掉 ⇒ 顺手抹掉字体自带的实例名（字体菜单里那个实例就没名字了）。
+ *
+ * 现在改成**按内容判**（`looksLikeWatermark`：web 的 JSON 带 `schema:"typeflow"`，或桌面版的
+ * `key=value` 含 `order_id=`），并且只删我们自己的那条、插在**最前面**（别的读取方按"第一条 256"取）。
+ *
+ * 这里用一个真实形态的样本：把字体里现成的 nameID 1（家族名）记录**就地改名成 256** ——
+ * 于是字体有了一条"像实例名、但内容不是我们水印"的 256 记录。
+ */
+async function testNameId256Collision(): Promise<void> {
+  const orig = new Uint8Array(readFileSync(resolveFont(FONT_XINGYUN)));
+  const raw = parseSfnt(orig);
+  const nameOff = raw.tableOffsets.get("name")!;
+  const nameLen = raw.tableLengths.get("name")!;
+  const recs = parseNameTable(raw.data, nameOff, nameLen);
+
+  // 找一条 platformID=3 的记录，把它的 nameID 就地改成 256（内容保持原样 = 家族名，不是 JSON 也不是 key=value）
+  const idx = recs.findIndex((r) => r.platformID === 3 && r.nameID !== 256);
+  const before = recs[idx];
+  const patchedName = raw.data.slice(nameOff, nameOff + nameLen);
+  const recOff = 6 + idx * 12;                 // 记录在 name 表内的偏移
+  patchedName[recOff + 6] = 0x01;              // nameID 高字节
+  patchedName[recOff + 7] = 0x00;              // nameID = 256
+
+  const fake = assembleSfnt(raw, { name: patchedName }, 0).bytes;
+  const fakeRaw = parseSfnt(fake);
+  const fakeRecs = parseNameTable(fakeRaw.data,
+    fakeRaw.tableOffsets.get("name")!, fakeRaw.tableLengths.get("name")!);
+  const injected = fakeRecs.find((r) => r.nameID === 256);
+
+  check("构造样本：字体自带一条 nameID 256、内容不是水印的记录",
+    !!injected && !looksLikeWatermark(injected.value),
+    `值=「${(injected?.value ?? "").slice(0, 20)}」（原 nameID ${before.nameID}）`);
+
+  check("① 带实例名式 256 记录的可变字体不被误判为已带水印",
+    findExistingWatermark(fake) === null,
+    findExistingWatermark(fake) ? "仍被当成水印 ⇒ 这类字体会一台都签不了" : "");
+
+  let signed = true;
+  let out: Uint8Array | null = null;
+  try {
+    const wm = await embedWatermark({
+      fontData: fake, masterKey: MASTER_KEY, provider: NODE_CRYPTO, tenantId: TENANT, orderId: "ORD-NAME-1",
+    });
+    out = wm.bytes;
+  } catch { signed = false; }
+  check("① 该字体可以正常签发（不再被拒）", signed && out !== null);
+
+  if (out) {
+    const oRaw = parseSfnt(out);
+    const oRecs = parseNameTable(oRaw.data, oRaw.tableOffsets.get("name")!, oRaw.tableLengths.get("name")!);
+    const all256 = oRecs.filter((r) => r.nameID === 256);
+    check("② 字体自带的 256 记录被保留（是追加而不是替换）",
+      all256.length === 2 && all256.some((r) => r.value === injected!.value),
+      `256 记录 ${all256.length} 条：${all256.map((r) => r.value.slice(0, 12)).join(" / ")}`);
+    check("③ 我们的记录排在第一条（别的读取方按第一条 256 取）",
+      all256.length > 0 && all256[0].value.startsWith("{"),
+      (all256[0]?.value ?? "").slice(0, 40));
+    check("③ 签发后的判重没被撞号破坏（还能读出订单号）",
+      (() => { const w = findExistingWatermark(out!); return w !== null && w.orderId === "ORD-NAME-1"; })(),
+      JSON.stringify(findExistingWatermark(out!)));
+  }
+}
+
+
+/**
+ * 批次 A 的机器证明 + **交付回执的可重算性**。
+ *
+ * 金标是怎么来的：先 `git show HEAD:engine/src/ttf/writer.ts`（连 `name.ts` 一起）拉出**重构前**的
+ * 实现，与重构后在同一批输入上逐字节比（两组样本 × 2 种位移 × name 有/无 = 8 组，全等），
+ * 确认等价后才把当前产物哈希固化下来。见 `.local/compare-writers.ts`、`.local/compare-writers2.ts`。
+ *
+ * ⚠️ **`named` 那一组不能删**：它锁的是"云端回执能重算出来" ——
+ * `watermarked_sha256` 存在云端作完成凭据，订单页「重新生成交付包」会重算并逐字节比对；
+ * 一旦写回路径的字节变了，**已签发订单**的重算就会对不上、页面会报"哈希与回执不一致"。
+ * （2026-09-18 给 name 表加"字体自带 256 记录"支持时，正是靠这一组才发现：无条件把我们的记录
+ *   插到最前会改变所有字体的产物字节 ⇒ 改成"只在真有撞号时才插到最前"。）
+ *
+ * 为什么用仓库内 fixture 而不是 `resolveFont`：后者在本机给全量样本、在 CI 给子集样本，
+ * 哈希会随环境变，金标就失去意义。
+ * 这里的位移函数必须与固化时完全一致（改它就等于换金标）。
+ */
+const GOLD_SHIFTS = (g: number): number => (g % 7 === 0 ? 2 : g % 11 === 0 ? -2 : 0);
+const GOLD_NAME = '{"schema":"typeflow","algo_version":"web-v1","order_id":"ORD-X"}';
+const GOLD_HASHES: Record<string, { anon: { bytes: number; sha256: string }; named: { bytes: number; sha256: string } }> = {
+  "xingyun-subset.ttf": {
+    anon: { bytes: 231360, sha256: "fea4ca01394b234a23f9b582fa46fdd467f5b2eba08f3684d03d8ccc8a20747a" },
+    named: { bytes: 231500, sha256: "b5f173d364a4c19a3a0de5f8183d79bb431970af8bc7860e4cdab3704378a659" },
+  },
+  "hybudai-subset.ttf": {
+    anon: { bytes: 689912, sha256: "108802391f709d86431e6e5ca0d7a87d20146effc2b78da7529e3f62121a33fe" },
+    named: { bytes: 690052, sha256: "73faab0aa142eefb8ab8b0e1696e8672f5e7ba587d6fab1b3c4d3fe02445f1e7" },
+  },
+};
+
+function testTtfGoldHashes(): void {
+  for (const [file, gold] of Object.entries(GOLD_HASHES)) {
+    const data = new Uint8Array(readFileSync(join(FIXTURES_DIR, file)));
+    const raw = parseSfnt(data);
+    for (const [label, spec, name] of [["匿名", gold.anon, null], ["带 name", gold.named, GOLD_NAME]] as const) {
+      const out = rebuildFont(raw, GOLD_SHIFTS, name).bytes;
+      const actual = createHash("sha256").update(Buffer.from(out)).digest("hex");
+      check(`金标哈希：${file}［${label}］（TTF 写出路径逐字节未变）`,
+        out.length === spec.bytes && actual === spec.sha256,
+        `${out.length} 字节 / ${actual.slice(0, 16)}…` +
+        (actual === spec.sha256 ? "" : `  期望 ${spec.bytes} / ${spec.sha256.slice(0, 16)}…`));
+    }
+  }
 }
 
 // ───────────────────────── 主流程 ─────────────────────────
@@ -283,7 +420,13 @@ function testVariableFontRejected(): void {
 
   console.log("\n── P1-9 / P1-10 / P1-11 签发保护与字体结构 ──");
   await testReSignAndHeader();
-  testVariableFontRejected();
+  testVariableFontAccepted();
+
+  console.log("\n── 批次 A 金标：TTF 写出路径逐字节未变 ──");
+  testTtfGoldHashes();
+
+  console.log("\n── Name ID 256 撞号（可变字体轴实例名） ──");
+  await testNameId256Collision();
 
   console.log(`\n通过 ${pass} / ${pass + fail}`);
   process.exit(fail > 0 ? 1 : 0);

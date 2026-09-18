@@ -1,0 +1,40 @@
+# vendor 冻结文件哈希（sha256）— 生成于 2026-09-18
+# 校验方式 —— cd engine/vendor 后执行 shasum -a 256 -c SHA256SUMS
+
+8c575077bfcc3658dfbc37daffcf62bad5500ed94357fc6dc54ab18d7a858df1  ./fontkit-cff/BBox.js
+10d84775bef3ea48aa5c41f9a1f172de3291e724f18b6ed43e8f33ee10893857  ./fontkit-cff/CFFCharsets.js
+9906ddab5f6ec8e780439e0fb3abecdb19b67e5483b76f45dabb9dbaa49062f2  ./fontkit-cff/CFFDict.js
+c6bfcbb646c8fc9fd880ebe7303f66a465ab01382aead5716917ec8e1c077200  ./fontkit-cff/CFFEncodings.js
+4a4eb9646cf88e1416f8c75d0f117b401d40c23f730db9b197dd401631885b74  ./fontkit-cff/CFFFont.js
+cabdbe523463ab7b9f2d4e9662cadc9a3e9ec4df7e8ed1d59153111774ca45d7  ./fontkit-cff/CFFGlyph.js
+45d9efceda23fbbfd34201686a3b4a4441f138b9d57bbca34a0fb666f75d4a41  ./fontkit-cff/CFFIndex.js
+e852a68b982f59c3044fa64199245ca0d111c63f5a40d2b8896c5bd7acf4e2fd  ./fontkit-cff/CFFOperand.js
+422086d62d502025b759df9fb083ddb7ae50ac84a8a45afea796afa4d8cf59c2  ./fontkit-cff/CFFPointer.js
+bc860a326e21485a06d239c4200cf0f90629db2457ac672e9579aac185d17797  ./fontkit-cff/CFFPrivateDict.js
+bad70982c18928ce6a951d697d9d1a01b698318f7eabf6ff0966066dadfcaa0b  ./fontkit-cff/CFFStandardStrings.js
+955b9c984db8d20da8e8656204ad95f94f4e1b929eee1a934f42750c3a4c998c  ./fontkit-cff/CFFTop.js
+3e4c3095125538f32816cfca4af3092870574b7d12846abf039b6a7af6ae2448  ./fontkit-cff/fast-deep-equal.js
+97ce8c333d5e979220326e9b4d02427f384855def0a9f7bb162c59e2d4eae8d6  ./fontkit-cff/glyph-base.js
+b625779c2651af266280d0c840eee311fbd5d5f0b2d744bd263820090f87b80d  ./fontkit-cff/index.d.ts
+6384d3ca38e050f375f4b83776736b2217fc73d3eb428c6bf03e5da7badcc1a6  ./fontkit-cff/index.js
+95d58fb1c56839a5171ea0c3896050e9e7eb56c316d76a094ea776a46a25dcdf  ./fontkit-cff/Path.js
+f403b0b7a9a2d4dedd05741a3a012ce4459ba1dcf003f1462e87fd16fbbd3e91  ./fontkit-cff/variations.js
+51c1f5b950fa605913126d21142596e41884251e2b154e4ce2bda115c4255bb0  ./restructure/index.d.ts
+5bb1d7925af6c38233057df9a02925e5109bd956908cf8f17eb5fd9ec43c1a3a  ./restructure/index.js
+75359c9a58ef3da4835738d44dc5112a3c6c5e6e3e921ed9eceb80d8071ce4fe  ./restructure/src/Array.js
+9078b6bfe12f9683b9b870c0aa2e6256b016162141dbdc2d7da8a821c563f9ca  ./restructure/src/Base.js
+62476af83511401e91d56a54514e563009d33169e360b44db7c4b43607d9243a  ./restructure/src/Bitfield.js
+d3c05f25d22d9d9575509468d15d068519eeba2a9da38de00ef32be22fae94be  ./restructure/src/Boolean.js
+b615b4a3afddde7dc3188cd1b7ec4603dbcd3ea5df604406cfb13e658d492a3b  ./restructure/src/Buffer.js
+db7375e0355e4fe7d2e5e2c1847c5008f920ad923812d04f92f2fdb630737fae  ./restructure/src/DecodeStream.js
+dc26be38cecc46ef2f72c2212aa68fb32d56a2c3fd7e743232d3c41aaef8d2f6  ./restructure/src/EncodeStream.js
+5da405880796277d87a0d14ccda25cdb25f8400c4cb54cbf62406186b44d4537  ./restructure/src/Enum.js
+4956bfd5eba201bbd88a85218cfbeb26d1d82d1a32354ff6ac86e67388773010  ./restructure/src/LazyArray.js
+b7ed7a239bf61f19a400274dbed572c2d0d3605b02cca66e704ee1d4d328bcd4  ./restructure/src/Number.js
+be65364119f2afb12d7f314922733d58b29b874e94db3b4e784a18f74d8ed71a  ./restructure/src/Optional.js
+4dbe247fae66adf3656e79d616d11e972382411070410f0f4f094b60cdc9d676  ./restructure/src/Pointer.js
+8e4a860ab61154ac3311edff32ed7d67d0f0803f6727906e0c0360696a6d8f87  ./restructure/src/Reserved.js
+5582ad7e7d1cb02a9174d9ba99771fbcf171fc643133c40a2a0ca5ec1e4f4297  ./restructure/src/String.js
+364117e34a8dad0c596eb7f1f7d82bb745d1cc819b9f625c6d77c442a357f57f  ./restructure/src/Struct.js
+08097b546226a78ea66ca6f9df9653d1d84111972443f57c1e344f2c0a1631a7  ./restructure/src/utils.js
+6b3a2cb2aaac605baf9946c407e619db7b209e9b08333264d780b905f2561166  ./restructure/src/VersionedStruct.js

@@ -9,8 +9,8 @@
  * （字体库页的哈希同步是另一个显式动作，不在这里发生）。
  */
 
-import { assertSupportedTtf } from "@engine/ttf/reader.js";
-import { getLocalFontData, listLocalFonts, saveLocalFont, sha256Of } from "./localFonts";
+import { assertSupportedFont } from "@engine/ttf/reader.js";
+import { getLocalFontData, listLocalFonts, saveLocalFont, sha256Of, type FontContainer } from "./localFonts";
 import { invalidateFontFace } from "./fontFace";
 import { maybeFolderBackup } from "./backupFolder";
 
@@ -20,6 +20,8 @@ export interface ImportFontResult {
   /** 字体名（文件名去扩展名） */
   name: string;
   sha256: string;
+  /** 轮廓容器（`glyf` = TTF；`cff`/`cff2` = OTF） */
+  container: FontContainer;
   /**
    * 同名但哈希不同的旧版本（有值时说明这次是「换版本入库」）：
    * 新版本作为**新字体**登记，旧版本与它的历史订单完全不受影响 —— 追溯靠哈希不靠文件名。
@@ -28,12 +30,13 @@ export interface ImportFontResult {
 }
 
 /**
- * 把一个用户选中的 TTF 文件存进本机字体库。
- * 失败抛人话错误（OTF/CFF 的拒绝话术来自 `assertSupportedTtf`），调用方接住塞进 toast。
+ * 把一个用户选中的字体文件存进本机字体库（TTF 与 OTF 都收）。
+ * 失败抛人话错误（文案来自 `assertSupportedFont`），调用方接住塞进 toast。
  */
 export async function importFontFile(f: File): Promise<ImportFontResult> {
   const buf = await f.arrayBuffer();
-  assertSupportedTtf(new Uint8Array(buf));   // OTF/CFF 拒之门外（人话文案）
+  // 入库即校验：不是受支持的字体（.ttc / WOFF / WOFF2 / 未知 sfnt）在这里被明确拒绝
+  const container = assertSupportedFont(new Uint8Array(buf));
   const sha = await sha256Of(buf);
   const id = sha.slice(0, 16);
 
@@ -42,7 +45,7 @@ export async function importFontFile(f: File): Promise<ImportFontResult> {
   // 同一份文件重复入库：直接返回既有记录，不做无意义的覆盖写
   const existing = await getLocalFontData(id);
   if (existing) {
-    return { id, name: f.name.replace(/\.(ttf|otf|woff2?)$/i, ""), sha256: sha, sameNamePrevious: sameName?.name };
+    return { id, name: f.name.replace(/\.(ttf|otf|woff2?)$/i, ""), sha256: sha, container, sameNamePrevious: sameName?.name };
   }
 
   await saveLocalFont({
@@ -54,6 +57,7 @@ export async function importFontFile(f: File): Promise<ImportFontResult> {
     size: f.size,
     savedAt: Date.now(),
     data: buf,
+    container,
   });
   invalidateFontFace(id);
   // 数据变更点 → 触发文件夹自动备份（内部节流 30s、失败静默）
@@ -63,6 +67,7 @@ export async function importFontFile(f: File): Promise<ImportFontResult> {
     id,
     name: f.name.replace(/\.(ttf|otf|woff2?)$/i, ""),
     sha256: sha,
+    container,
     sameNamePrevious: sameName?.name,
   };
 }

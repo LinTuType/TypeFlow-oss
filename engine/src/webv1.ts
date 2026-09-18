@@ -118,13 +118,30 @@ export function bytesToHex(d: Uint8Array): string {
 }
 
 /**
+ * 选择阶段的可选入参 —— 让**同一套选择规则**服务两种轮廓容器。
+ *
+ * ⚠️ `algoVersion` 会进 `canonical_context` ⇒ 进 `order_root` 派生 ⇒ 进 Name 256 与追溯端
+ *    "挑哪个解释器"的开关。**TTF（含可变）必须保持 `web-v1`**，否则已签发订单的追溯会断。
+ *    OTF/CFF 用新的 `web-v2`（v1 清单已冻结声明 `out_of_scope.cff_otf`）。
+ */
+export interface SelectionOpts {
+  /** 算法版本号；默认 `web-v1` */
+  algoVersion?: string;
+  /**
+   * 候选码点（升序）。不传则按 TTF 口径现算（glyf 的简单字形）。
+   * OTF 侧由调用方传 `cffEligibleCodepoints(...)` 的结果（判据等价：非空 + 首个移动带 x）。
+   */
+  eligible?: number[];
+}
+
+/**
  * 运行完整确定性选择（与 reference.run_selection 对齐）
  *
  * 两种调用形态：
  *   - 云端/测试：传 masterKey → 内部由 canonical_context 派生 order_root
  *   - 浏览器（配方模式）：传 orderRootOverride（= 云端派生的 order_root），
  *     不再需要 masterKey（密钥不落浏览器）
- * @param fontData TTF 原始字节
+ * @param fontData 字体原始字节
  * @param masterKey 32 字节主密钥（orderRootOverride 存在时可为空）
  * @param provider 密码学实现（Node / WebCrypto 均可，保证跨端一致）
  */
@@ -137,9 +154,10 @@ export async function runSelection(
   bitsSuffix = "",
   anchorPool?: number[],
   orderRootOverride?: Uint8Array,
+  opts: SelectionOpts = {},
 ): Promise<SelectionResult> {
   const raw: TtfRaw = parseSfnt(fontData);
-  const eligible = eligibleCodepoints(raw);
+  const eligible = opts.eligible ?? eligibleCodepoints(raw);
 
   // 锚定候选：优先显式传入（含高频池∩cmap），否则回退全合格字形
   let anchorEligible = eligible;
@@ -155,7 +173,8 @@ export async function runSelection(
   }
 
   const fontSha256 = await fileSha256(provider, fontData);
-  const ctxStr = canonicalContext(ALGO_VERSION, tenantId, orderId, fontSha256, bitsSuffix);
+  const algoVersion = opts.algoVersion ?? ALGO_VERSION;
+  const ctxStr = canonicalContext(algoVersion, tenantId, orderId, fontSha256, bitsSuffix);
   // 配方模式：直接用云端下发的 order_root；否则由主密钥派生
   const oroot = orderRootOverride && orderRootOverride.length === 32
     ? orderRootOverride
@@ -207,7 +226,7 @@ export async function runSelection(
   }
 
   return {
-    manifest: ALGO_VERSION,
+    manifest: algoVersion,
     font_sha256: fontSha256,
     canonical_context: ctxStr,
     order_root_hex: bytesToHex(oroot),

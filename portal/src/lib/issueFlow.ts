@@ -99,6 +99,9 @@ async function runIssueFlow(
       note: opts.note || undefined, amount: opts.amount,
       licenseType: opts.licenseType || undefined,
       licenseStart: opts.licenseStart, licenseEnd: opts.licenseEnd,
+      // 轮廓容器记在本机订单关联里：订单页重发邮件时可能本机已经没有这份字体了，
+      // 而邮件正文点名的交付文件名（.ttf / .otf）必须与当初交付的一致。
+      fontContainer: font.container,
     });
   }
 

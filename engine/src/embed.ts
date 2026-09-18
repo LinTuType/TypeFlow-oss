@@ -1,23 +1,34 @@
 /**
- * web-v1 双通道嵌入流水线 — 阶段 1
+ * web-v1 双通道嵌入流水线 — 阶段 1（入口，按轮廓容器分派）
  *
- * 把「确定性选择（webv1.ts，阶段0）」与「坐标位移 + 写回（writer.ts）」串起来：
+ * ```
+ *                 ┌─ glyf（TTF，静态或可变） → ttf/writer.rebuildFont
+ * embedWatermark ─┤
+ *                 └─ CFF / CFF2（OTF）      → cff/embed.embedWatermarkOtf
+ * ```
  *
- *   1. runSelection → 60 锚定码点 / 60 配对码点 / 100 扰动位移
- *   2. 码点 → glyph id（经 cmap）
- *   3. 通道 A：锚定字 bit=1 → +2，bit=0 → -2
- *      通道 B：配对字 bit=1 → -2，bit=0 → +2（反向）
- *      扰动字：noise_shifts[码点]（可能为 0 → 跳过）
- *   4. 写 Name ID 256（schema/algo_version/order_id/font_sha256/bits_suffix）
- *   5. rebuildFont → 新字体字节
+ * 两条路共用：
+ *   - 选择规则（`webv1.runSelection`，唯一差别是 `algoVersion` 与候选集来源）
+ *   - 码点→gid→位移与冲突检测（`shiftmap.buildShiftMap`）
+ *   - "已带水印不能重复签发"的前置检查（`findExistingWatermark`，读 name 表，容器无关）
+ *
+ * ⚠️ 算法版本号：TTF（含可变）保持 `web-v1`，OTF 用 `web-v2`。
+ *    `algo_version` 进 `canonical_context` ⇒ 进 `order_root` 派生。给 TTF 换版本号会让
+ *    **已签发订单**的追溯上下文对不上；而 v1 清单已冻结声明 `out_of_scope.cff_otf`，
+ *    OTF 是新能力 ⇒ 新版本号。
  */
 
-import { runSelection, type SelectionResult } from "./webv1.js";
+import { runSelection, type SelectionResult, ALGO_VERSION } from "./webv1.js";
 import { loadAnchorPool } from "./pool.js";
 import type { CryptoProvider } from "./crypto.js";
-import { parseSfnt, parseCmap, assertSupportedTtf, type TtfRaw } from "./ttf/reader.js";
-import { parseNameTable } from "./ttf/name.js";
+import { parseSfnt, parseCmap, assertSupportedFont, type TtfRaw } from "./ttf/reader.js";
+import { parseNameTable, looksLikeWatermark, orderIdOfWatermark, WATERMARK_NAME_ID } from "./ttf/name.js";
 import { rebuildFont, type EmbedOutput } from "./ttf/writer.js";
+import { buildShiftMap } from "./shiftmap.js";
+import { embedWatermarkOtf } from "./cff/embed.js";
+
+/** OTF/CFF 容器使用的算法版本号（TTF 侧仍为 web-v1，见文件头） */
+export const ALGO_VERSION_CFF = "web-v2";
 
 export interface EmbedParams {
   /** 字体原始字节 */
@@ -36,6 +47,11 @@ export interface EmbedParams {
 export interface EmbedResult extends EmbedOutput {
   selection: SelectionResult;
   nameId256: string;
+  /**
+   * 因"多个码点 → 同一字形"而按优先级让位的角色（锚定 > 配对 > 扰动）。
+   * CID 字体（中日文商业字库）里很常见；让位是安全的，但要能看见（见 `shiftmap.ts`）。
+   */
+  degraded?: string[];
 }
 
 /** Name ID 256 内容：单行 JSON（与 manifest nameid256 字段对齐） */
@@ -55,7 +71,13 @@ export function buildNameId256(
 }
 
 /**
- * 探测字体里已有的 web-v1 水印记录（Name ID 256）。
+ * 探测字体里已有的水印记录（Name ID 256）。
+ *
+ * ⚠️ **必须按内容判，不能按编号判**（2026-09-18 实测）：Name ID 256 属于 OpenType 的
+ * "字体自定义"区间，而**可变字体的轴实例名正好从这里开始** —— 实测思源黑体 SC VF 的
+ * `(3,1,1033,256)` 就是默认实例名 `Regular`。早先按编号判 ⇒ 所有可变字体都被误判成
+ * "已经带水印"，**一台都签不了**。这里扫**全部** nameID 256 记录，只认内容像我们水印的那条
+ * （web 的 JSON 或桌面版的 `key=value`；见 `ttf/name.ts · looksLikeWatermark`）。
  *
  * @returns null = 没有水印；否则返回水印里记录的 order_id（解析不出时为 null）
  */
@@ -65,25 +87,19 @@ export function findExistingWatermark(fontData: Uint8Array): { orderId: string |
   const len = raw.tableLengths.get("name");
   if (off === undefined || len === undefined) return null;
   const rec = parseNameTable(raw.data, off, len)
-    .find((n) => n.nameID === 256 && n.platformID === 3);
+    .find((n) => n.nameID === WATERMARK_NAME_ID && looksLikeWatermark(n.value));
   if (!rec) return null;
-  try {
-    const meta = JSON.parse(rec.value) as { order_id?: unknown };
-    return { orderId: typeof meta.order_id === "string" ? meta.order_id : null };
-  } catch {
-    // 非 JSON 的旧记录：仍然是水印，只是读不出订单号
-    return { orderId: null };
-  }
+  return { orderId: orderIdOfWatermark(rec.value) };
 }
 
 /**
- * 运行完整 web-v1 嵌入。
+ * 运行完整嵌入（按容器分派）。
  * @returns 新字体字节 + 统计 + 选择结果（供验证）
  */
 export async function embedWatermark(params: EmbedParams): Promise<EmbedResult> {
-  const { fontData, masterKey, orderRoot, provider, tenantId, orderId, bitsSuffix = "" } = params;
+  const { fontData } = params;
 
-  assertSupportedTtf(fontData);          // OTF/CFF 入口即拒绝（产品化文案）
+  const kind = assertSupportedFont(fontData);
 
   // 已经带水印的字体不能再签一次：新位移会叠加在旧位移上、Name 256 被后一单覆盖，
   // 结果是第一份订单彻底失去可追溯性 —— 而这个过程此前是静默成功的。
@@ -97,78 +113,48 @@ export async function embedWatermark(params: EmbedParams): Promise<EmbedResult> 
     );
   }
 
-  const raw: TtfRaw = parseSfnt(fontData);
-  const cmap = parseCmap(raw);
+  if (kind !== "glyf") {
+    return embedWatermarkOtf(params);
+  }
 
-  // 1. 确定性选择（阶段 0 验证过的同一逻辑；锚定候选固定高频字池∩cmap）
+  const raw: TtfRaw = parseSfnt(fontData);
+  const cmap = parseCmap(raw).map;
+
+  // 1. 确定性选择（锚定候选固定高频字池∩cmap；algoVersion 保持 web-v1）
   const selection = await runSelection(
-    fontData, masterKey ?? new Uint8Array(0), provider, tenantId, orderId, bitsSuffix, loadAnchorPool(), orderRoot,
+    fontData,
+    params.masterKey ?? new Uint8Array(0),
+    params.provider,
+    params.tenantId,
+    params.orderId,
+    params.bitsSuffix ?? "",
+    loadAnchorPool(),
+    params.orderRoot,
+    { algoVersion: ALGO_VERSION },
   );
 
-  // 2. 码点 → gid 映射；同一 gid 可能被多码点命中 → 冲突记录
-  const anchorGid = new Map<number, number>(); // gid -> bit
-  const pairGid = new Map<number, number>();
-  const noiseGid = new Map<number, number>();
-
-  const bits = selection.bits;
-  const expanded: number[] = [];
-  for (const b of bits) expanded.push(b, b, b); // 60 bit（已由 20×3 展开）
-
-  selection.anchors.forEach((cp, i) => {
-    const gid = cmap.map.get(cp);
-    if (gid === undefined) return;
-    anchorGid.set(gid, expanded[i] ?? 0);
-  });
-
-  selection.pairs.forEach((cp, i) => {
-    const gid = cmap.map.get(cp);
-    if (gid === undefined) return;
-    pairGid.set(gid, expanded[i] ?? 0);
-  });
-
-  for (const cp of selection.noises) {
-    const gid = cmap.map.get(cp);
-    if (gid === undefined) continue;
-    noiseGid.set(gid, selection.noise_shifts[String(cp)] ?? 0);
+  // 2. 码点 → gid → 位移（与 OTF 路径共用同一份换算与冲突检测）
+  const assigns = buildShiftMap(selection, cmap);
+  if (assigns.fatal.length > 0) {
+    throw new Error(`字体选择冲突: ${assigns.fatal.join(", ")}`);
   }
 
-  // 冲突处理：锚定 > 配对 > 扰动（同一 gid 多角色时锚定优先，理论上罕见）
-  const conflicts: string[] = [];
-  for (const gid of anchorGid.keys()) {
-    if (pairGid.has(gid)) conflicts.push(`gid${gid}:anchor+pair`);
-    if (noiseGid.has(gid)) conflicts.push(`gid${gid}:anchor+noise`);
-  }
-  for (const gid of pairGid.keys()) {
-    if (!anchorGid.has(gid) && noiseGid.has(gid)) conflicts.push(`gid${gid}:pair+noise`);
-  }
-  if (conflicts.length > 0) {
-    throw new Error(`字体选择冲突: ${conflicts.join(", ")}`);
-  }
-
-  // 3. 位移函数（gid → shiftX）
-  const shifts = (gid: number): number => {
-    const a = anchorGid.get(gid);
-    if (a !== undefined) return a === 1 ? 2 : -2; // 通道 A 正/负
-    const p = pairGid.get(gid);
-    if (p !== undefined) return p === 1 ? -2 : 2; // 通道 B 反向
-    return noiseGid.get(gid) ?? 0;
-  };
-
-  // 4. Name ID 256
+  // 3. Name ID 256
   const nameId256 = buildNameId256(
     selection.manifest,
-    orderId,
+    params.orderId,
     selection.font_sha256,
-    bitsSuffix,
+    params.bitsSuffix ?? "",
   );
 
-  // 5. 重建字体
-  const rebuilt = rebuildFont(raw, shifts, nameId256);
+  // 4. 重建字体（glyf 路径；可变字体也走这里，hmtx.lsb 由 rebuildHmtx 同步）
+  const rebuilt = rebuildFont(raw, assigns.shifts, nameId256);
 
   return {
     bytes: rebuilt.bytes,
     nModified: rebuilt.nModified,
     selection,
     nameId256,
+    degraded: assigns.degraded,
   };
 }

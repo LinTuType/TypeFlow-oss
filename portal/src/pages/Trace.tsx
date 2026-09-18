@@ -26,7 +26,7 @@ import {
 } from "../lib/traceHistory";
 import { printTraceReport } from "../lib/traceReportHtml";
 import { maybeFolderBackup } from "../lib/backupFolder";
-import { assertSupportedTtf } from "@engine/ttf/reader.js";
+import { assertSupportedFont } from "@engine/ttf/reader.js";
 import { AccordionPanel, Button, ConfirmButton, InfoI, PageHeader, Spinner } from "../components/ui";
 import TraceReport from "../components/TraceReport";
 import FontPicker from "../components/FontPicker";
@@ -96,7 +96,7 @@ export default function Trace() {
     setImportBusy(true);
     try {
       const buf = new Uint8Array(await f.arrayBuffer());
-      assertSupportedTtf(buf);                 // 原版：OTF/CFF 即刻拒绝
+      assertSupportedFont(buf);                // 原版：入库前先按内容校验（.ttc / WOFF / WOFF2 挡在这里）
       const sha = await sha256Hex(buf);
       const hit = fonts.find((x) => x.sha256 === sha);
       if (hit) {
@@ -126,7 +126,7 @@ export default function Trace() {
     setImportBusy(true);
     try {
       const buf = new Uint8Array(await f.arrayBuffer());
-      assertSupportedTtf(buf);                 // 可疑：OTF/CFF 即刻拒绝（引擎兜底之外的前置提示）
+      assertSupportedFont(buf);                // 可疑：同上（引擎兜底之外的前置提示）
       const sha = await sha256Hex(buf);
       const claim = readSelfClaim(buf);
       setSusp({ name: f.name, size: f.size, sha256: sha });

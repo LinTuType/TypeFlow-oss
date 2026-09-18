@@ -11,7 +11,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { apiOrders, apiTrace, type OrderInfo } from "../api/client";
 import { listCustomers } from "../lib/localCustomers";
 import { listOrderNotes, type LocalOrderNote } from "../lib/localOrders";
-import { getLocalFont, getLocalFontData, listLocalFonts, sha256Of } from "../lib/localFonts";
+import { getLocalFont, getLocalFontData, listLocalFonts, sha256Of, containerExt, type FontContainer } from "../lib/localFonts";
 import { localEmbed, downloadBytes } from "../lib/issuer";
 import { buildDeliveryZip, deliveryPackageName } from "../lib/delivery";
 import { deliveryMailto, type MailMeta } from "../lib/mailto";
@@ -63,6 +63,11 @@ export default function Orders() {
   /** 客户库里的交付邮箱 —— 订单本地关联里没存邮箱的老订单，靠它落到收件人 */
   const [clientEmailById, setClientEmailById] = useState<Map<string, string>>(new Map());
   const [fontNameById, setFontNameById] = useState<Map<string, string>>(new Map());
+  /**
+   * 本机字体的**轮廓容器** —— 只用来定交付文件的扩展名（`.ttf` / `.otf`）。
+   * 单独一张表而不是把 `fontNameById` 改成对象：那个 map 的显示语义被 E2E 锁着，不动它。
+   */
+  const [fontContainerById, setFontContainerById] = useState<Map<string, FontContainer>>(new Map());
   const [localByOrderId, setLocalByOrderId] = useState<Map<string, LocalOrderNote>>(new Map());
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -81,6 +86,9 @@ export default function Orders() {
       setClientEmailById(new Map(cs.map((c) => [c.id, c.email ?? ""])));
       setLocalByOrderId(new Map(notes.map((n) => [n.orderId, n])));
       setFontNameById(new Map(fonts.map((f) => [f.id, f.name])));
+      setFontContainerById(
+        new Map(fonts.filter((f) => f.container).map((f) => [f.id, f.container as FontContainer])),
+      );
     } catch (e) {
       toast.error("订单加载失败", { detail: (e as Error).message });
     } finally {
@@ -155,9 +163,14 @@ export default function Orders() {
       amount: note?.amount,
       licensor: readFoundry(),
       issuedAt: new Date(selOrder.updated_at ?? selOrder.created_at).toLocaleString("zh-CN"),
+      // 交付文件名里的扩展名：优先订单关联里记的（签发那一刻的事实，换设备也在），
+      // 其次按本机这份字体的容器，都没有才回落 ttf（见 MailMeta.fontExt 的说明）
+      fontExt: containerExt(
+        note?.fontContainer ?? fontContainerById.get(selOrder.font_id.replace(/^font_/, "")),
+      ),
     };
     return deliveryMailto(meta, email).url;
-  }, [selOrder, localByOrderId, clientEmailById, fontNameById]);
+  }, [selOrder, localByOrderId, clientEmailById, fontNameById, fontContainerById]);
 
   /** 作废订单（仅未签发可取消；确认+ 级操作） */
   const [cancelBusy, setCancelBusy] = useState(false);

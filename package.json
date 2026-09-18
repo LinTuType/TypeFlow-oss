@@ -13,7 +13,7 @@
     "stage1": "tsx engine/tests/stage1.ts",
     "stage2": "tsx engine/tests/stage2.ts",
     "regression": "tsx engine/tests/regression.ts",
-    "test": "tsx engine/tests/compare.ts && tsx engine/tests/stage1.ts && tsx engine/tests/stage2.ts && tsx engine/tests/regression.ts",
+    "test": "tsx engine/tests/compare.ts && tsx engine/tests/stage1.ts && tsx engine/tests/stage2.ts && tsx engine/tests/cff-stage1.ts && tsx engine/tests/regression.ts",
     "webcrypto": "tsx engine/tests/webcrypto-consistency.ts",
     "smoke": "tsx engine/tests/smoke-browser-bundle.ts",
     "e2e": "tsx engine/tests/e2e-local-signer.ts",
@@ -34,7 +34,7 @@
     "cf:deploy:prod": "wrangler deploy --env production",
     "demo": "tsx tools/demo-e2e.mts",
     "portal:dev": "npm --prefix portal run dev",
-    "portal:test": "tsx portal/tests/backup.test.ts",
+    "portal:test": "tsx --tsconfig portal/tsconfig.json portal/tests/backup.test.ts && tsx --tsconfig portal/tsconfig.json portal/tests/delivery.test.ts",
     "portal:build": "npm --prefix portal run build",
     "portal:e2e": "tsx engine/tests/e2e-portal.ts",
     "portal:e2e:full": "node scripts/run-portal-e2e.mjs",
@@ -43,7 +43,8 @@
     "build:engine": "node build-browser.mjs",
     "build:signer": "node make-local-signer.mjs",
     "build": "npm run build:engine && npm run build:signer",
-    "verify": "npm test && npm run webcrypto && npm run smoke && npm run e2e"
+    "verify": "npm test && npm run webcrypto && npm run smoke && npm run e2e",
+    "cff:stage1": "tsx engine/tests/cff-stage1.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

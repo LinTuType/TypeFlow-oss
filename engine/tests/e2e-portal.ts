@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { launchChromium } from "./browser.js";
-import { FONT_XINGYUN, resolveFont } from "./fontPath.js";
+import { FONT_XINGYUN, FIXTURES_DIR, resolveFont } from "./fontPath.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -22,6 +22,13 @@ const PORTAL = "http://localhost:5173";
 /** worker（dev-server）直连地址：邮箱验证要在跑 UI 之外拿一封捕获到的邮件 */
 const WORKER = "http://127.0.0.1:8787";
 const FONT = resolveFont(FONT_XINGYUN);
+/**
+ * OTF（CFF 轮廓）样本 —— 用**仓库内子集**而不是 `resolveFont`：
+ * 这一段在 e2e 末尾跑，要的是快与确定性（本机的全量样本是 12.7MB / 23058 字形）。
+ */
+const OTF_SAMPLE = join(FIXTURES_DIR, "tsuku-subset.otf");
+/** 该样本在界面里的字体名 = 文件名去扩展名（`importFontFile` 的口径） */
+const OTF_FONT_NAME = "tsuku-subset";
 
 const email = `e2e_${Date.now().toString(36)}@test.dev`;
 
@@ -195,13 +202,21 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   check("Toast 由 host 定位（自身不 fixed，否则多条会完全重叠）", toastStyle.position === "static", `position=${toastStyle.position}`);
   const toastText = (await page.locator(".toast").allTextContents()).join(" | ");
   check("添加字体后 Toast 提示仅存本机", toastText.includes("已存入本机"), toastText.slice(0, 60));
-  // §2.5 F-2：OTF/CFF 入口即拒（人话文案），不再出现「缺少 glyf 表」或无意义判定
+  // §2.5 F-2 的后续（2026-09-18）：OTF/CFF 已经**支持**了，所以这条断言从"被拒绝"改成两件
+  // 与 UI 直接相关、且不往库里留状态的事：
+  //   ① 选择器的 accept 必须放行 .otf（否则用户根本选不中，功能等于没上）
+  //   ② 内容不是字体的文件仍要被**明确拒绝**（人话文案），而不是悄悄进库、等到签发才炸
+  const fontAccept = (await page.locator('input[type="file"]').first().getAttribute("accept")) ?? "";
+  check("字体选择器放行 .otf（不再只收 .ttf）", fontAccept.includes(".otf"), fontAccept);
+
   await page.locator('input[type="file"]').setInputFiles({
-    name: "fake.otf", mimeType: "font/otf", buffer: Buffer.from([0x4f, 0x54, 0x54, 0x4f]),
+    name: "not-a-font.otf", mimeType: "font/otf", buffer: Buffer.from([0x4f, 0x54, 0x54, 0x4f]),
   });
   await page.waitForTimeout(800);
-  const otfToast = (await page.locator(".toast").allTextContents()).join(" | ");
-  check("OTF/CFF 导入被明确拒绝（人话文案）", otfToast.includes("暂不支持 OTF/CFF"), otfToast.slice(0, 70));
+  const badFontToast = (await page.locator(".toast").allTextContents()).join(" | ");
+  check("内容不是字体时明确拒绝（人话文案，不静默进库）",
+    badFontToast.includes("解析失败") || badFontToast.includes("文件过短"),
+    badFontToast.slice(0, 70));
 
   await page.waitForSelector(".font-card", { timeout: 15000 }).catch(() => {});
   check("字体以标本卡呈现", (await page.locator(".font-card").count()) >= 1);
@@ -981,6 +996,86 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const gapOrders = (await page.textContent("body")) ?? "";
   check("订单页字体列写人话（不是 font_ 开头的哈希），并同样给出恢复入口",
     gapOrders.includes("字体不在本机") && gapOrders.includes("本机数据不在这个浏览器里"));
+
+  // 7. OTF（CFF 轮廓）从界面走一遍：入库 → 签发 → 下载文件名 / 包内条目 / 使用说明都必须是 .otf。
+  //
+  //    为什么单独放最后：这一段要往字体库里加一份字体，而前面大量步骤用 `.font-card` 的
+  //    `first()` 定位（删除 → 重入库的时序断言），插进去会真的打坏它们。放末尾则字体库里
+  //    只有它这一份本机字体，定位无歧义。
+  await page.goto(PORTAL + "/fonts");
+  await page.waitForSelector(".font-card, .empty", { timeout: 20000 }).catch(() => {});
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: `${OTF_FONT_NAME}.otf`, mimeType: "font/otf", buffer: readFileSync(OTF_SAMPLE),
+  });
+  await page.waitForSelector(".toast:has-text('已存入本机')", { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const otfToast = (await page.locator(".toast").allTextContents()).join(" | ");
+  check("OTF 能入库（不再是「暂不支持 OTF/CFF」）", otfToast.includes("已存入本机"), otfToast.slice(0, 50));
+
+  const otfCard = page.locator(`.font-card:has-text('${OTF_FONT_NAME}')`).first();
+  await otfCard.waitFor({ timeout: 20000 }).catch(() => {});
+  check("字体库出现这张 OTF 卡片", (await otfCard.count()) === 1);
+  check("卡片标注格式为 OTF（按文件名后缀渲染）",
+    ((await otfCard.textContent()) ?? "").includes("OTF"), ((await otfCard.textContent()) ?? "").slice(0, 40));
+
+  // 从卡片直接签发（签发页会预选这份 OTF）
+  await otfCard.hover();
+  await otfCard.locator(".mini button[title='签发']").click();
+  await page.waitForURL("**/issue", { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  const otfPick = (await page.locator(".pick").nth(1).textContent()) ?? "";
+  check("签发页已预选该 OTF 字体", otfPick.includes(OTF_FONT_NAME), otfPick.slice(0, 30));
+
+  // 客户在上一步（5c）被清空了，就地新建一个
+  await page.locator(".pick").first().click();
+  await page.waitForTimeout(400);
+  await page.locator(".acc-panel.open .picker-add:has-text('新建客户')").click();
+  await page.fill('input[aria-label="新客户名称"]', "OTF 用例客户");
+  await page.locator(".acc-panel.open button:has-text('创建客户')").click();
+  await page.waitForTimeout(600);
+  check("签发页可新建并选中客户",
+    ((await page.locator(".pick").first().textContent()) ?? "").includes("OTF 用例客户"));
+
+  await page.click("button:has-text('生成签发文件')");
+  await page.waitForSelector(".paper .proc-res.on", { timeout: 60000 }).catch(() => {});
+  check("OTF 一键签发完成", ((await page.textContent("body")) ?? "").includes("签发完成"));
+
+  const otfOrderId = ((await page.locator(".issue-done-id").first().textContent()) ?? "").trim();
+  const otfDlBtn = page.locator("button:has-text('下载水印字体')").first();
+  let otfDownloaded: Buffer | null = null;
+  if (await otfDlBtn.count()) {
+    const [dl] = await Promise.all([
+      page.waitForEvent("download", { timeout: 30000 }).catch(() => null),
+      otfDlBtn.click(),
+    ]);
+    const p = dl ? await dl.path() : null;
+    if (p) otfDownloaded = readFileSync(p);
+    check(`OTF 水印字体命名为「${OTF_FONT_NAME}_订单号.otf」（OTF 进就 OTF 出，不改名叫 .ttf）`,
+      !!dl && dl.suggestedFilename() === `${OTF_FONT_NAME}_${otfOrderId}.otf`,
+      dl ? dl.suggestedFilename() : "未触发下载");
+  } else {
+    check("OTF 水印字体可下载", false, "未找到下载按钮");
+  }
+  check("下载到的仍是 OTF 容器（首四字节 OTTO）",
+    !!otfDownloaded && otfDownloaded.subarray(0, 4).toString("latin1") === "OTTO",
+    otfDownloaded ? otfDownloaded.subarray(0, 4).toString("latin1") : "未取到文件");
+
+  const otfZipBtn = page.locator("button:has-text('下载交付包')").first();
+  let otfZipFiles: Map<string, Buffer> | null = null;
+  if (await otfZipBtn.count()) {
+    const [zipDl] = await Promise.all([
+      page.waitForEvent("download", { timeout: 30000 }).catch(() => null),
+      otfZipBtn.click(),
+    ]);
+    const zp = zipDl ? await zipDl.path() : null;
+    if (zp) otfZipFiles = readZip(readFileSync(zp));
+  }
+  check("OTF 交付包内那一条字体也是 .otf（与单文件下载逐字一致）",
+    !!otfZipFiles && otfZipFiles.has(`${OTF_FONT_NAME}_${otfOrderId}.otf`),
+    otfZipFiles ? [...otfZipFiles.keys()].join(" · ") : "解包失败");
+  check("OTF 交付包的使用说明按 .otf 写安装步骤",
+    !!otfZipFiles && (otfZipFiles.get("使用说明.txt")?.toString("utf8") ?? "").includes(".otf"),
+    (otfZipFiles?.get("使用说明.txt")?.toString("utf8") ?? "").split("\n").find((l) => l.includes("安装字体"))?.slice(0, 50) ?? "");
 
   // 6. 无 JS 错误
   check("无页面 JS 错误", errors.length === 0, errors[0] ?? "");

@@ -14,12 +14,22 @@
  * 与桌面版最大差异：这里全部在本地决策，无云端参与（阶段 4 再接云端配方）。
  */
 
-import { runSelection } from "./webv1.js";
+import { runSelection, ALGO_VERSION } from "./webv1.js";
 import { loadAnchorPool } from "./pool.js";
 import type { CryptoProvider } from "./crypto.js";
-import { parseSfnt, parseCmap, assertSupportedTtf, type TtfRaw } from "./ttf/reader.js";
+import {
+  parseSfnt,
+  parseCmap,
+  assertSupportedFont,
+  detectOutlineKind,
+  type TtfRaw,
+  type OutlineKind,
+} from "./ttf/reader.js";
 import { readGlyphRaw } from "./ttf/glyf.js";
-import { parseNameTable } from "./ttf/name.js";
+import { parseNameTable, looksLikeWatermark, WATERMARK_NAME_ID } from "./ttf/name.js";
+import { extractCffTable, parseCff } from "./cff/table.js";
+import { cffEligibleCodepoints } from "./cff/token.js";
+import { ALGO_VERSION_CFF } from "./embed.js";
 
 export interface TraceInput {
   originalBytes: Uint8Array;
@@ -77,14 +87,21 @@ export interface TraceVerdict {
   };
 }
 
-/** 读取可疑字体 Name ID 256（若无返回 null） */
+/**
+ * 读取可疑字体 Name ID 256（若无返回 null）。
+ *
+ * ⚠️ 与 `embed.findExistingWatermark` 同一条纪律：**按内容判，不按编号判**。
+ * Name ID 256 属于 OpenType 的"字体自定义"区间，可变字体的轴实例名正好从这里开始
+ * （思源黑体 SC VF 的 `(3,1,1033,256)` = `Regular`）—— 按编号判会把实例名当成水印，
+ * 追溯页会显示一串与订单无关的字，甚至拿它去当订单号。
+ */
 export function readNameId256(data: Uint8Array): string | null {
   const raw = parseSfnt(data);
   const off = raw.tableOffsets.get("name");
   const len = raw.tableLengths.get("name");
   if (off === undefined || len === undefined) return null;
-  const recs = parseNameTable(raw.data, off, len);
-  const r = recs.find((n) => n.nameID === 256 && n.platformID === 3);
+  const r = parseNameTable(raw.data, off, len)
+    .find((n) => n.nameID === WATERMARK_NAME_ID && looksLikeWatermark(n.value));
   return r ? r.value : null;
 }
 
@@ -93,9 +110,9 @@ export function stripNameId256(data: Uint8Array): Uint8Array {
   return data; // 占位：实际剥离在测试里经 writer 完成（避免重复实现 sfnt 重建）
 }
 
-/** 获取某字形当前 xMin（简单字形） */
-function glyphXMin(raw: TtfRaw, gid: number): number | null {
-  // 入口已过 assertSupportedTtf；这里仍防御式判空（此前是 ! 断言，OTF 会读到垃圾偏移）
+/** 获取某字形当前 xMin（glyf 简单字形） */
+function glyfXMin(raw: TtfRaw, gid: number): number | null {
+  // 入口已过 assertSupportedFont；这里仍防御式判空（此前是 ! 断言，OTF 会读到垃圾偏移）
   const glyfOff = raw.tableOffsets.get("glyf");
   const locaOff = raw.tableOffsets.get("loca");
   const headOff = raw.tableOffsets.get("head");
@@ -116,12 +133,47 @@ function glyphXMin(raw: TtfRaw, gid: number): number | null {
   return g ? g.xMin : null;
 }
 
+/** 逐字形轮廓读取器 —— **容器无关**：glyf 与 CFF/CFF2 都走同一接口 */
+export interface GlyphReader {
+  kind: OutlineKind;
+  /** 控制点 x 最小值；读不出返回 null（调用方按"字形缺失"处理，不参与投票） */
+  xMin(gid: number): number | null;
+  /** CFF/CFF2 才有：候选码点（与签发侧同一判据）。glyf 侧为 undefined ⇒ 由选择器按 glyf 口径现算 */
+  eligible?: number[];
+}
+
+/**
+ * 打开轮廓读取器。CFF 侧复用 `cff/table` 的容器句柄（内部用 vendor 的 charstring 解释器，
+ * 见 `cff/glyph.ts`）—— 追溯要处理**客户转换过格式**的水印字体，所以读法必须与写侧同源。
+ *
+ * 顺带把候选集也算出来（同一份容器只解析一次），供选择器复用。
+ */
+export function openGlyphReader(raw: TtfRaw): GlyphReader {
+  const kind = detectOutlineKind(raw);
+  if (kind === null) throw new Error("不支持的轮廓容器");
+  if (kind === "glyf") {
+    return { kind, xMin: (gid: number) => glyfXMin(raw, gid) };
+  }
+  const table = extractCffTable(raw.data, raw.tableOffsets, raw.tableLengths);
+  if (!table) throw new Error("缺少 CFF / CFF2 表");
+  const cff = parseCff(table.bytes, table.isCFF2);
+  const cmap = parseCmap(raw).map;
+  return {
+    kind,
+    xMin: (gid: number) => cff.glyphXMin(gid),
+    eligible: cffEligibleCodepoints(cmap, (gid) => cff.getCharString(gid), {
+      isCFF2: cff.isCFF2,
+      regionCount: (v) => cff.regionCount(v),
+    }),
+  };
+}
+
 /**
  * 对一个已知订单的预期位序列，比较原版 vs 可疑，产出双通道观测。
  */
 function compareWithOrder(
-  origRaw: TtfRaw,
-  suspRaw: TtfRaw,
+  orig: GlyphReader,
+  susp: GlyphReader,
   origCmap: Map<number, number>,
   suspCmap: Map<number, number>,
   anchors: number[],
@@ -142,8 +194,8 @@ function compareWithOrder(
       bDiffs.push(null);
       return;
     }
-    const ox = glyphXMin(origRaw, og);
-    const sx = glyphXMin(suspRaw, sg);
+    const ox = orig.xMin(og);
+    const sx = susp.xMin(sg);
     aDiffs.push(ox !== null && sx !== null ? sx - ox : null);
 
     // 通道 B：配对字相对锚定字间距
@@ -158,10 +210,10 @@ function compareWithOrder(
       bDiffs.push(null);
       return;
     }
-    const opx = glyphXMin(origRaw, opg);
-    const osx = glyphXMin(origRaw, og);
-    const spx = glyphXMin(suspRaw, spg);
-    const ssx = glyphXMin(suspRaw, sg);
+    const opx = orig.xMin(opg);
+    const osx = orig.xMin(og);
+    const spx = susp.xMin(spg);
+    const ssx = susp.xMin(sg);
     if (opx === null || osx === null || spx === null || ssx === null) {
       bDiffs.push(null);
       return;
@@ -358,20 +410,23 @@ function computeVerdict(
 export async function traceWatermark(input: TraceInput): Promise<TraceResult> {
   const { originalBytes, suspiciousBytes, masterKey, orderRoot, provider, tenantId, bitsSuffix = "" } = input;
 
-  // OTF/CFF 入口即拒绝（此前追溯路径会读到垃圾偏移、给出无意义判定）
-  assertSupportedTtf(originalBytes);
-  assertSupportedTtf(suspiciousBytes);
+  // 入口校验：返回轮廓容器类型（glyf / cff / cff2）。TTC、WOFF、未知 sfnt 在这里被明确拒绝，
+  // 而不是让后面的 glyf 读取拿到垃圾偏移、给出无意义判定。
+  assertSupportedFont(originalBytes);
+  assertSupportedFont(suspiciousBytes);
 
   const nameId256 = readNameId256(suspiciousBytes);
 
   // 候选订单：优先从 Name 256 读取，否则用入参
   let candidateOrders: string[] = input.candidateOrders ?? [];
+  let nameAlgoVersion: string | null = null;
   if (nameId256) {
     try {
       const meta = JSON.parse(nameId256);
       if (meta.order_id && candidateOrders.length === 0) {
         candidateOrders = [String(meta.order_id)];
       }
+      if (typeof meta.algo_version === "string") nameAlgoVersion = meta.algo_version;
     } catch {
       // Name 256 非 JSON（旧记录）：忽略，走候选
     }
@@ -381,13 +436,31 @@ export async function traceWatermark(input: TraceInput): Promise<TraceResult> {
   const suspRaw = parseSfnt(suspiciousBytes);
   const origCmap = parseCmap(origRaw).map;
   const suspCmap = parseCmap(suspRaw).map;
+  const origReader = openGlyphReader(origRaw);
+  const suspReader = openGlyphReader(suspRaw);
+
+  // 算法版本号进 canonical_context ⇒ 进 order_root 派生；取错版本会让锚定/配对整体错位。
+  // 权威来源是 Name 256 里写的 `algo_version`（那是"签发当时"的事实）；
+  // 没有它（例如水印记录被删）就按**原版字体**的容器推断：glyf → web-v1，CFF → web-v2。
+  const algoVersion =
+    nameAlgoVersion ?? (origReader.kind === "glyf" ? ALGO_VERSION : ALGO_VERSION_CFF);
 
   let best: TraceResult | null = null;
   for (const order of candidateOrders) {
     // 用原版字体重算锚定/配对（与原版 hash 同 key）
-    const sel = await runSelection(originalBytes, masterKey ?? new Uint8Array(0), provider, tenantId, order, bitsSuffix, loadAnchorPool(), orderRoot);
+    const sel = await runSelection(
+      originalBytes,
+      masterKey ?? new Uint8Array(0),
+      provider,
+      tenantId,
+      order,
+      bitsSuffix,
+      loadAnchorPool(),
+      orderRoot,
+      { algoVersion, eligible: origReader.eligible },
+    );
     const { aDiffs, aBits, bDiffs, bestOffset } = compareWithOrder(
-      origRaw, suspRaw, origCmap, suspCmap,
+      origReader, suspReader, origCmap, suspCmap,
       sel.anchors, sel.pairs, sel.bits,
     );
 
