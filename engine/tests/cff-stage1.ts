@@ -55,7 +55,8 @@ import { assembleSfnt, rebuildHmtx, numGlyphsOf } from "../src/ttf/sfnt.js";
 // 以便做「逐点」断言；产品代码只暴露 xMin，不给测试开口子。
 import { CFFFont, CFFGlyph } from "../vendor/fontkit-cff/index.js";
 import { DecodeStream } from "../vendor/restructure/index.js";
-import { FONT_TSURU_OTF, FONT_SOURCEHAN_CFF2, resolveFont } from "./fontPath.js";
+import { FONT_TSURU_OTF, FONT_SOURCEHAN_CFF2,
+  FONT_SOURCEHAN_CN, resolveFont } from "./fontPath.js";
 
 const NODE_CRYPTO = createNodeCryptoProvider();
 const MASTER_KEY = new Uint8Array(
@@ -63,9 +64,19 @@ const MASTER_KEY = new Uint8Array(
 );
 const TENANT = "tenant-zhong";
 
-/** 两份 OTF 样本：CFF1 与 CFF2 走同一套断言 */
+/**
+ * 三份 OTF 样本，走**同一套**断言。
+ *
+ * ⚠️ 第三份（`sourcehan-cn-subset.otf`）是 2026-09-18 补的，**别删**：
+ * 它带 **local subrs + global subrs**（679 + 351 条），而前两份都没有 ——
+ * 当时的漏洞正是「fontkit 把子程序只解成 `{offset,length}` 描述符、写回时写成等长的零」，
+ * 结果凡是用 `callsubr` 的真实字体产物全坏（fontTools 复画一半字形抛异常）。
+ * 仓库样本当时**恰好都不带子程序**，所以整套测试全绿也照样漏过去。
+ * 这个样本 + 本文件里的 fontTools 逐点交叉核验，就是钉这条回归的。
+ */
 const SAMPLES = [
   { label: "CFF1", path: resolveFont(FONT_TSURU_OTF), tag: "CFF " as const, order: "ORD-OTF-1" },
+  { label: "CFF1+子程序", path: resolveFont(FONT_SOURCEHAN_CN), tag: "CFF " as const, order: "ORD-OTF-SUBR" },
   { label: "CFF2", path: resolveFont(FONT_SOURCEHAN_CFF2), tag: "CFF2" as const, order: "ORD-CFF2-1" },
 ];
 

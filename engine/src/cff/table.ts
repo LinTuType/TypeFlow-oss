@@ -15,7 +15,7 @@
 import { CFFFont, CFFTop } from "../../vendor/fontkit-cff/index.js";
 import { DecodeStream } from "../../vendor/restructure/index.js";
 import { parseCff2, type Cff2Font } from "./cff2.js";
-import { makeGlyphXMin } from "./glyph.js";
+import { makeGlyphXMin, makeGlyphXMax } from "./glyph.js";
 
 export interface CffFont {
   isCFF2: boolean;
@@ -33,6 +33,8 @@ export interface CffFont {
    * 而不是拿一个错值去投票。
    */
   glyphXMin(gid: number): number | null;
+  /** 控制点 x **最大值** —— 通道 A（锚定）用这个，与桌面版 `get_glyph_xmax` 对齐 */
+  glyphXMax(gid: number): number | null;
 }
 
 /**
@@ -60,6 +62,7 @@ export function parseCff(table: Uint8Array, isCFF2: boolean): CffFont {
   const topDict = font.topDictIndex[0];
   const count = (topDict.CharStrings as Array<{ offset: number; length: number }>).length;
   const xMinOf = makeGlyphXMin(font, false);
+  const xMaxOf = makeGlyphXMax(font, false);
 
   return {
     isCFF2: false,
@@ -70,10 +73,32 @@ export function parseCff(table: Uint8Array, isCFF2: boolean): CffFont {
     },
     regionCount: () => -1,
     glyphXMin: (gid: number) => (gid >= 0 && gid < count ? xMinOf(gid) : null),
+    glyphXMax: (gid: number) => (gid >= 0 && gid < count ? xMaxOf(gid) : null),
     rebuild(charStrings: Uint8Array[]): Uint8Array {
       if (charStrings.length !== count) {
         throw new Error(`charstring 个数 ${charStrings.length} ≠ 字形数 ${count}`);
       }
+      // ⚠️ **写回前必须先把子程序描述符换成真实字节**（2026-09-18 定位到的根因，
+      //    用户报的「OTF 签发能用、追溯不到」就出在这里）：
+      //    fontkit 对**没有声明元素类型**的 INDEX 只解出 `{offset, length}` 描述符、不读字节，
+      //    而我们的 `globalSubrIndex`（CFFTop）与各 FD 的 `Private.Subrs`（CFFPrivateDict）
+      //    正好都是这种写法（`new CFFIndex` 没给类型）。直接把描述符交给编码器，
+      //    写出来就是**等长的零**；于是凡是用 `callsubr` 的字形，独立实现 fontTools 复画时抛
+      //    `ValueError: not enough values to unpack`（原件 201/201 可画），
+      //    我们自己的读取器也大面积读不出 xMin ⇒ 追溯读不到 + 交付的字体本身是坏的。
+      //    描述符里的 offset 是**相对 CFF 表起点**的绝对偏移，直接从原表切片即可。
+      const srcBuf = (font as unknown as { stream?: { buffer?: Uint8Array } }).stream?.buffer;
+      if (srcBuf) {
+        const rest = materializeSubrs(srcBuf, font.globalSubrIndex)
+          + materializeSubrs(srcBuf, (topDict.Private as { Subrs?: unknown } | null)?.Subrs)
+          + (topDict.FDArray as Array<Record<string, unknown>> | undefined ?? [])
+            .reduce((acc, fd) => acc + materializeSubrs(srcBuf, (fd?.["Private"] as { Subrs?: unknown } | undefined)?.Subrs), 0);
+        if (rest > 0) {
+          // fail closed：还有描述符没换成字节 ⇒ 写出去必然是坏的，宁可拒绝
+          throw new Error(`CFF 子程序有 ${rest} 条没能取到真实字节（结构未识别），已中止以免写出损坏字体`);
+        }
+      }
+
       // 只换 CharStrings，其余（stringIndex / charset / FDArray / FDSelect / Private /
       // globalSubrIndex）原样传回去 —— 这是结构同构的关键。
       const newTopDict = { ...topDict, CharStrings: charStrings.map((b) => b) };
@@ -90,6 +115,29 @@ export function parseCff(table: Uint8Array, isCFF2: boolean): CffFont {
   };
 }
 
+/**
+ * 把 INDEX 里的 `{offset, length}` 描述符**就地换成真实字节**；返回**剩下的**描述符条数
+ * （>0 ⇒ 调用方必须拒绝签发）。
+ *
+ * 背景见 `rebuild` 里的注释：fontkit 只在 INDEX 声明了元素类型时才读字节。
+ */
+function materializeSubrs(table: Uint8Array, arr: unknown): number {
+  if (!Array.isArray(arr)) return 0;
+  let left = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const it = arr[i] as { offset?: unknown; length?: unknown } | Uint8Array;
+    if (it instanceof Uint8Array) continue;
+    const offset = (it as { offset?: unknown })?.offset;
+    const length = (it as { length?: unknown })?.length;
+    if (typeof offset === "number" && typeof length === "number") {
+      arr[i] = table.slice(offset, offset + length);
+    } else {
+      left++;
+    }
+  }
+  return left;
+}
+
 function wrapCff2(f: Cff2Font): CffFont {
   return {
     isCFF2: true,
@@ -98,6 +146,7 @@ function wrapCff2(f: Cff2Font): CffFont {
     regionCount: (vsIndex: number) => f.regionCount(vsIndex),
     rebuild: (charStrings: Uint8Array[]) => f.rebuild(charStrings),
     glyphXMin: (gid: number) => f.glyphXMin(gid),
+    glyphXMax: (gid: number) => f.glyphXMax(gid),
   };
 }
 

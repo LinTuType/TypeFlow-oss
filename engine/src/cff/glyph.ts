@@ -27,6 +27,31 @@ export function makeGlyphXMin(
   isCFF2: boolean,
   regionCount?: (vsIndex: number) => number,
 ): (gid: number) => number | null {
+  return makeGlyphBound(fontkitFont, isCFF2, regionCount, "min");
+}
+
+/**
+ * 同 `makeGlyphXMin`，取的是**控制点 x 最大值**。
+ *
+ * 为什么要两个：桌面版**通道 A（锚定）用的是 xMax**（`services/watermark_service.py · decode_trace_bits`
+ * 走 `get_glyph_xmax`），而**通道 B（间距）用 xMin**（`pairing.py · extract_pair_spacing`）。
+ * web 这边此前两个通道都用 xMin —— 数值上等价（整体平移 ±2 时两者同步移动），
+ * 但口径必须与桌面版一致，否则"同一套算法"这句话就不成立。
+ */
+export function makeGlyphXMax(
+  fontkitFont: unknown,
+  isCFF2: boolean,
+  regionCount?: (vsIndex: number) => number,
+): (gid: number) => number | null {
+  return makeGlyphBound(fontkitFont, isCFF2, regionCount, "max");
+}
+
+function makeGlyphBound(
+  fontkitFont: unknown,
+  isCFF2: boolean,
+  regionCount: ((vsIndex: number) => number) | undefined,
+  which: "min" | "max",
+): (gid: number) => number | null {
   const zeroBlend = {
     // 默认实例：所有区域权重为 0
     getBlendVector: (_vstore: unknown, vsindex: number): number[] => {
@@ -43,9 +68,9 @@ export function makeGlyphXMin(
   return (gid: number): number | null => {
     try {
       const glyph = new CFFGlyph(gid, [], duckFont) as unknown as {
-        path: { cbox: { minX: number } };
+        path: { cbox: { minX: number; maxX: number } };
       };
-      const v = glyph.path.cbox.minX;
+      const v = which === "min" ? glyph.path.cbox.minX : glyph.path.cbox.maxX;
       return Number.isFinite(v) ? Math.round(v) : null;
     } catch {
       return null;

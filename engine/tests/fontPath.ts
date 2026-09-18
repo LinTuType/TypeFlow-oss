@@ -39,6 +39,9 @@ const SUBSET_MAP: Record<string, string> = {
   // OTF（CFF2，可变）样本：来自本机 ~/Library/Fonts/SourceHanSansSC-VF.otf，
   // 保留 fvar/HVAR/VVAR/avar/STAT（否则"可变 OTF 也能签"没有样本可验）
   "SourceHanSansSC-VF.otf": "sourcehan-cff2-subset.otf",
+  // ⚠️ 这一份是**带子程序**的 CFF1（679 条局部 + 351 条全局）—— 别删：
+  // 子程序曾是写回路径的一个真实漏洞（被写成等长的零），而另两份样本恰好都不带子程序。
+  "SourceHanSansCN-Regular.OTF": "sourcehan-cn-subset.otf",
 };
 
 /** 测试用到的两个样本字体（真名，喂给 resolveFont） */
@@ -48,6 +51,8 @@ export const FONT_HYBUDAI = "HYBuDaiXiongBasicW.ttf";
 export const FONT_TSURU_OTF = "FOT-TsukuAOldMinPr6N-L.otf";
 /** OTF（CFF2 轮廓、可变）样本：思源黑体 SC 可变版，单轴 wght 250–900 */
 export const FONT_SOURCEHAN_CFF2 = "SourceHanSansSC-VF.otf";
+/** OTF（CFF1 + 局部/全局子程序）样本：思源黑体 CN 静态版 —— 钉"子程序被写成零"那条回归 */
+export const FONT_SOURCEHAN_CN = "SourceHanSansCN-Regular.OTF";
 
 /**
  * 解析某个样本字体的实际路径。

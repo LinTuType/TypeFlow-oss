@@ -122,7 +122,7 @@ export function stripNameId256(data: Uint8Array): Uint8Array {
  * 桌面版从一开始就是按实际坐标算的（`watermark/name_table.py · get_glyph_xmin`，
  * 注释写着「从实际坐标计算，避免缓存值不准确」）—— web 这边漏了，两边不一致。
  */
-function glyfXMin(raw: TtfRaw, gid: number): number | null {
+function glyfBoundX(raw: TtfRaw, gid: number, which: "min" | "max"): number | null {
   // 入口已过 assertSupportedFont；这里仍防御式判空（此前是 ! 断言，OTF 会读到垃圾偏移）
   const glyfOff = raw.tableOffsets.get("glyf");
   const locaOff = raw.tableOffsets.get("loca");
@@ -142,17 +142,28 @@ function glyfXMin(raw: TtfRaw, gid: number): number | null {
   const d = raw.data.slice(glyfOff);
   const g = readGlyphRaw(d, p0);
   if (!g || g.absX.length === 0) return null;
-  // 逐点取最小 x（与桌面版同一口径）；缓存字段 g.xMin 不可信
-  let minX = g.absX[0];
-  for (let i = 1; i < g.absX.length; i++) if (g.absX[i] < minX) minX = g.absX[i];
-  return minX;
+  // 逐点取端点（与桌面版同一口径）；缓存字段 g.xMin / g.xMax 都不可信
+  let v = g.absX[0];
+  for (let i = 1; i < g.absX.length; i++) {
+    if (which === "min" ? g.absX[i] < v : g.absX[i] > v) v = g.absX[i];
+  }
+  return v;
 }
 
 /** 逐字形轮廓读取器 —— **容器无关**：glyf 与 CFF/CFF2 都走同一接口 */
 export interface GlyphReader {
   kind: OutlineKind;
-  /** 控制点 x 最小值；读不出返回 null（调用方按"字形缺失"处理，不参与投票） */
+  /**
+   * 控制点 x 最小值；读不出返回 null（调用方按"字形缺失"处理，不参与投票）。
+   * **通道 B（配对间距）用这个** —— 与桌面版 `pairing.py · extract_pair_spacing` 一致。
+   */
   xMin(gid: number): number | null;
+  /**
+   * 控制点 x **最大值**；**通道 A（锚定位）用这个** —— 与桌面版
+   * `services/watermark_service.py · decode_trace_bits`（走 `get_glyph_xmax`）一致。
+   * 两个通道用不同端点不是笔误：这是 2026-09-18 与桌面版对齐时确认的口径。
+   */
+  xMax(gid: number): number | null;
   /** CFF/CFF2 才有：候选码点（与签发侧同一判据）。glyf 侧为 undefined ⇒ 由选择器按 glyf 口径现算 */
   eligible?: number[];
 }
@@ -167,7 +178,11 @@ export function openGlyphReader(raw: TtfRaw): GlyphReader {
   const kind = detectOutlineKind(raw);
   if (kind === null) throw new Error("不支持的轮廓容器");
   if (kind === "glyf") {
-    return { kind, xMin: (gid: number) => glyfXMin(raw, gid) };
+    return {
+      kind,
+      xMin: (gid: number) => glyfBoundX(raw, gid, "min"),
+      xMax: (gid: number) => glyfBoundX(raw, gid, "max"),
+    };
   }
   const table = extractCffTable(raw.data, raw.tableOffsets, raw.tableLengths);
   if (!table) throw new Error("缺少 CFF / CFF2 表");
@@ -176,6 +191,7 @@ export function openGlyphReader(raw: TtfRaw): GlyphReader {
   return {
     kind,
     xMin: (gid: number) => cff.glyphXMin(gid),
+    xMax: (gid: number) => cff.glyphXMax(gid),
     eligible: cffEligibleCodepoints(cmap, (gid) => cff.getCharString(gid), {
       isCFF2: cff.isCFF2,
       regionCount: (v) => cff.regionCount(v),
@@ -209,8 +225,9 @@ function compareWithOrder(
       bDiffs.push(null);
       return;
     }
-    const ox = orig.xMin(og);
-    const sx = susp.xMin(sg);
+    // 通道 A 看 **xMax**（与桌面版 get_glyph_xmax 一致）
+    const ox = orig.xMax(og);
+    const sx = susp.xMax(sg);
     aDiffs.push(ox !== null && sx !== null ? sx - ox : null);
 
     // 通道 B：配对字相对锚定字间距

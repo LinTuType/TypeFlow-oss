@@ -20,7 +20,7 @@
 
 import { CFFFont, CFFTop } from "../../vendor/fontkit-cff/index.js";
 import { DecodeStream } from "../../vendor/restructure/index.js";
-import { makeGlyphXMin } from "./glyph.js";
+import { makeGlyphXMin, makeGlyphXMax } from "./glyph.js";
 
 interface CffDictLike {
   CharStrings: unknown;
@@ -56,6 +56,7 @@ export interface Cff2Font {
   regionCount(vsIndex: number): number;
   /** 追溯侧用：该字形轮廓的控制点 x 最小值（解析不出来返回 null） */
   glyphXMin(gid: number): number | null;
+  glyphXMax(gid: number): number | null;
   /** 用新的 charstring 数组重建整份 CFF2 表 */
   rebuild(charStrings: Uint8Array[]): Uint8Array;
 }
@@ -79,6 +80,7 @@ export function parseCff2(table: Uint8Array): Cff2Font {
     return typeof k === "number" && k > 0 ? k : -1;
   };
   const xMinOf = makeGlyphXMin(font, true, regionCountOf);
+  const xMaxOf = makeGlyphXMax(font, true, regionCountOf);
 
   return {
     numGlyphs: count,
@@ -87,6 +89,7 @@ export function parseCff2(table: Uint8Array): Cff2Font {
       return font.getCharString(gid);
     },
     glyphXMin: (gid: number) => (gid >= 0 && gid < count ? xMinOf(gid) : null),
+    glyphXMax: (gid: number) => (gid >= 0 && gid < count ? xMaxOf(gid) : null),
     regionCount(vsIndex: number): number {
       return regionCountOf(vsIndex);
     },
