@@ -569,7 +569,41 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   // **刻意不做删除** —— 删了会让追溯回一句"没有对应历史订单"，而那份字体里其实还带着水印。
   await page.locator(`.trow:has-text('${orderId}')`).click();
   await page.waitForTimeout(400);
-  const archBtn = page.locator(".modal button:has-text('归入归档箱')");
+
+  // 4b-2c. 弹窗出口与动作行（2026-09-19，用户报"按钮跑到卡片外面 / 拆行太丑"）：
+  //   关闭收进右上角 ✕；已签发状态下低频动作（复制配方 / 归档）图标化，语义走 aria-label；
+  //   动作行必须**单行**排下 —— 原先 534px > 内容宽 452px，整行会从卡片左侧溢出 146px。
+  check("弹窗关闭出口是右上角 ✕（底部不再有「关闭」按钮）",
+    (await page.locator(".modal .modal-x").count()) === 1
+    && (await page.locator(".modal-actions button:has-text('关闭')").count()) === 0);
+  const xBox = await page.locator(".modal .modal-x").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const mr = (el.closest(".modal") as HTMLElement).getBoundingClientRect();
+    return { topGap: Math.round(r.top - mr.top), rightGap: Math.round(mr.right - r.right), side: Math.round(r.width) };
+  });
+  // ⚠️ 15 而不是 CSS 里写的 14：`.modal` 带 1px 边框，而绝对定位的包含块是**内边距盒**，
+  //    所以从边框外沿量是 14 + 1。这里的数值同时锁住"弹窗边框还在"这件事。
+  check("✕ 贴右上角（28px 方盒，距边框上 / 右各 15px）",
+    xBox.side === 28 && xBox.topGap === 15 && xBox.rightGap === 15, JSON.stringify(xBox));
+  const actRow = await page.locator(".modal .modal-actions").evaluate((el) => {
+    const btns = Array.from(el.querySelectorAll("button"));
+    const r = el.getBoundingClientRect();
+    const modal = el.closest(".modal") as HTMLElement;
+    const mr = modal.getBoundingClientRect();
+    const cs = getComputedStyle(modal);
+    return {
+      rows: new Set(btns.map((b) => Math.round(b.getBoundingClientRect().top))).size,
+      overflowLeft: Math.round((mr.left + parseFloat(cs.paddingLeft) - r.left) * 10) / 10,
+      iconBtns: btns.filter((b) => b.classList.contains("btn-icon")).length,
+      textBtns: btns.filter((b) => !b.classList.contains("btn-icon")).length,
+    };
+  });
+  check("已签发动作行单行排下（不再折行）", actRow.rows === 1, `实际 ${actRow.rows} 行`);
+  check("动作行不越出弹窗内容区", actRow.overflowLeft <= 0.5, `溢出 ${actRow.overflowLeft}px`);
+  check("低频动作已图标化（复制 / 归档 2 个图标按钮 + 2 个文字按钮）",
+    actRow.iconBtns === 2 && actRow.textBtns === 2, JSON.stringify(actRow));
+
+  const archBtn = page.locator(".modal button[aria-label='归入归档箱']");
   check("订单详情提供「归入归档箱」入口", (await archBtn.count()) === 1);
   await archBtn.click();
   await page.waitForTimeout(1000);          // 归档后门户会重新拉列表
@@ -588,7 +622,7 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
   await page.locator(`.trow:has-text('${orderId}')`).click();
   await page.waitForTimeout(400);
-  await page.locator(".modal button:has-text('移出归档箱')").click();
+  await page.locator(".modal button[aria-label='移出归档箱']").click();
   await page.waitForTimeout(1000);
   await page.keyboard.press("Escape");
   await page.waitForTimeout(250);

@@ -1,0 +1,11 @@
+{
+  "name": "文镇 TypeFlow · 字体授权工作台",
+  "short_name": "文镇 TypeFlow",
+  "description": "字体授权与水印追溯工作台：字体文件不上传，水印嵌入与泄露追溯全部在本机浏览器完成。",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#102d50",
+  "background_color": "#fbfaf8"
+}

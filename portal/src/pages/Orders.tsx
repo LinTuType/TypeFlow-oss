@@ -279,6 +279,14 @@ export default function Orders() {
   const canCancel = !!selOrder && ["draft", "prepared", "recipe_issued"].includes(selOrder.status);
 
   /**
+   * 「复制签发配方」在两种状态下分量不同：
+   *   未签发完成（recipe_issued）时它是这张卡唯一的主要动作 ⇒ 保留文字 + primary；
+   *   已签发时前面已有「重新生成交付包 / 邮件发给客户」⇒ 降为图标，动作行才排得下（不折行）。
+   * 底部动作行的宽度账见 skill「弹窗的出口与动作行宽度」——加动作前先算。
+   */
+  const recipeIsPrimary = selOrder?.status === "recipe_issued";
+
+  /**
    * 重新生成交付包（P1-1 剩余部分）
    *
    * 水印字体不落本地库，但嵌入是**确定性**的：「本机原版字体 + 云端配方」重算，
@@ -427,7 +435,7 @@ export default function Orders() {
       {/* ── 订单详情模态框（共用 Modal：Esc / 焦点圈定 / 滚动锁） ── */}
       {selOrder && (
         <Modal onClose={() => setSel(null)} label="订单详情">
-          {(close) => (<>
+          {() => (<>
             <h2 style={{ font: "600 20px/1.4 var(--serif)" }}>{selOrder.order_id}</h2>
             <div className="kv"><div className="kv-k">状态</div>
               <div className="kv-v">
@@ -493,7 +501,6 @@ export default function Orders() {
             )}
 
             <div className="modal-actions">
-              <Button onClick={close}>关闭</Button>
               {selOrder.status === "issued" && (
                 <Button variant="primary" disabled={regenBusy} onClick={() => void doRegenerate()}>
                   <IconDownload size={14} />{regenBusy ? "重算中…" : "重新生成交付包"}
@@ -507,10 +514,19 @@ export default function Orders() {
                   <IconMail size={14} />邮件发给客户
                 </Button>
               )}
+              {/* 复制签发配方：已签发时降为图标（与归档、作废同一档：低频 + 有 title 提示），
+                  未签发完成时它是唯一的主要动作，保留文字。 */}
               {["recipe_issued", "issued"].includes(selOrder.status) && (
-                <Button disabled={copyBusy} onClick={() => void doCopyRecipe()}>
-                  <IconCopy size={14} />{copyBusy ? "复制中…" : "复制签发配方"}
-                </Button>
+                recipeIsPrimary ? (
+                  <Button variant="primary" disabled={copyBusy} busy={copyBusy}
+                    icon={<IconCopy size={14} />} onClick={() => void doCopyRecipe()}>
+                    复制签发配方
+                  </Button>
+                ) : (
+                  <Button className="btn-icon" disabled={copyBusy} busy={copyBusy}
+                    icon={<IconCopy size={14} />} title="复制签发配方" aria-label="复制签发配方"
+                    onClick={() => void doCopyRecipe()} />
+                )
               )}
               {canCancel && (
                 <ConfirmButton label="" confirmLabel="确认作废" title="作废订单"
@@ -518,12 +534,13 @@ export default function Orders() {
                   icon={<IconBan size={13} />}
                   onConfirm={() => void doCancel()} />
               )}
-              {/* 归档 / 还原：普通操作（随时可逆），所以不要二次确认 */}
-              <Button disabled={archBusy} onClick={() => void doArchive(!isArchived(selOrder))}>
-                {isArchived(selOrder)
-                  ? <><IconUnarchive size={14} />{archBusy ? "处理中…" : "移出归档箱"}</>
-                  : <><IconArchive size={14} />{archBusy ? "处理中…" : "归入归档箱"}</>}
-              </Button>
+              {/* 归档 / 还原：普通操作（随时可逆），所以不要二次确认。
+                  图标化 —— 它是"整理"而非"交付"，不该和主按钮抢位置 */}
+              <Button className="btn-icon" disabled={archBusy} busy={archBusy}
+                icon={isArchived(selOrder) ? <IconUnarchive size={14} /> : <IconArchive size={14} />}
+                title={isArchived(selOrder) ? "移出归档箱" : "归入归档箱"}
+                aria-label={isArchived(selOrder) ? "移出归档箱" : "归入归档箱"}
+                onClick={() => void doArchive(!isArchived(selOrder))} />
             </div>
           </>)}
         </Modal>

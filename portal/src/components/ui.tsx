@@ -158,6 +158,11 @@ export function Modal({
           if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
           else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         }}>
+        {/* 关闭出口收在右上角（2026-09-19）：底部动作行只留业务动作，不再被一个「关闭」占位。
+            写在 children 之前 ⇒ 它是对话框内第一个可聚焦元素，Tab 圈定自然从它起算。 */}
+        <button type="button" className="modal-x" aria-label="关闭" title="关闭" onClick={close}>
+          <IconX size={16} />
+        </button>
         {typeof children === "function" ? children(close) : children}
       </div>
     </div>

@@ -5,9 +5,9 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `610f44ad909f8722600f3d0a9c25090b14f9b7ce`（branch main，工作树干净） |
-| 导出时间 | 2026-09-19T13:28:40.321Z |
-| 文件数 | 152 |
+| 主仓库 commit | `1962b7980b60876901257e1e965b2d7e5bbcffc1`（branch main，工作树干净） |
+| 导出时间 | 2026-09-19T14:18:41.851Z |
+| 文件数 | 157 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
 
@@ -39,7 +39,7 @@
 | engine/tests/cff-stage1.ts | `0e5368997e58a1e2c5ebd715408213cb7058d686b1a5d0a21e147011c637ebb7` |
 | engine/tests/compare.ts | `7626da16140f2b91f2b15d53718312c54eb0955ec20678a1c1cb796350da8723` |
 | engine/tests/e2e-local-signer.ts | `19c6fa63951ca87b494e091dd2bf84dad2ba51cc38e8f0f0006508de2f413cc0` |
-| engine/tests/e2e-portal.ts | `d36059efe1da4186168bd4c53a4f9c128ba84fd48db5e17196752bc84fe9ee1b` |
+| engine/tests/e2e-portal.ts | `477604be1ef2d3467d65b783a9c7a69c8663b4484de378b14242a9f31dea3e1c` |
 | engine/tests/fixtures/hybudai-subset.ttf | `c7ba0d8fad728f232966ea122af60e37ace567fdf4de1297dc081d78ecc5dba1` |
 | engine/tests/fixtures/sourcehan-cff2-subset.otf | `fcef5386b3970166f2c5b42443e887cda0f620892a26ee6269682850a6836fd0` |
 | engine/tests/fixtures/sourcehan-cn-subset.otf | `aab50dd2921973c8d81bb876b07593f373b99f18dc94856d2ffc20b5a4ef43b4` |
@@ -95,9 +95,14 @@
 | engine/vendor/restructure/src/VersionedStruct.js | `6b3a2cb2aaac605baf9946c407e619db7b209e9b08333264d780b905f2561166` |
 | engine/vendor/restructure/src/utils.js | `08097b546226a78ea66ca6f9df9653d1d84111972443f57c1e344f2c0a1631a7` |
 | package.json | `1c3247f07b7f713329a0ffe314774e9dfd5d4eb5aff4b87ae3206a5711aa7ee6` |
-| portal/index.html | `07ba8d3957b09dcfde42d873c36afa03645aa4e4f76b371bec724af05d8b3eed` |
+| portal/index.html | `fe3ac768575d52d04ad0ac7d528ceee0fc921417cd04c9de572864b3056470f2` |
 | portal/package.json | `eb905dd65eb551e2bb0fc6e88f86916d1f0aa5ad90eeafa275cb1064dc0e8121` |
+| portal/public/apple-touch-icon.png | `1bd937551c3068cd236b1cf841af6ea2b7423e84014fb7334940a3edf8b71556` |
+| portal/public/favicon-32.png | `479fd4dee5091d7562126acd42c45e2a75e8bc72e24f24640d4f1f0ce662d552` |
+| portal/public/icon-192.png | `e0c4b41447656365647cb991e07a62a0f746db599573267d0eb8f831ef03aa38` |
+| portal/public/icon-512.png | `93e7a21dda3dbba22524b4dcfd7559b1d7aa81683e493fa6e03df68dbe163966` |
 | portal/public/logo.svg | `e676bfb35b7130e39b3a8a93a6de024c3e8a6dc214001a8b3fdec6455d5c979e` |
+| portal/public/site.webmanifest | `eeef1e6254b85716bd3d4578724140a52b6635f6edb7c2a581aadafae9b89bbe` |
 | portal/public/typeflow-local-signer.html | `0ad60977e9fde0735dfc8d626b0ddb2dde8a5a3412457652bdecc1ea30aef2e1` |
 | portal/src/App.tsx | `355e848a1b0ae288c0e5b3d9ba6dc6bebef6ac675431f2629c27fb73c7767d5d` |
 | portal/src/api/client.ts | `f1638b7f4e342dc3ea6980c4eaac30e067b2f69a8f2bf6cdcd5f0310c2b6b98e` |
@@ -115,7 +120,7 @@
 | portal/src/components/Sidebar.tsx | `000e0efe69d1f3087e106bf7b290fee8aff5d4cf70933364fdcfabf6065caddb` |
 | portal/src/components/ToastHost.tsx | `c916c32c3a7cc0eef9153761d085ccb5ddfca1785a1d876d99e874ddf0599df3` |
 | portal/src/components/TraceReport.tsx | `d367e389f5a40c5bf7a5cef9f7054f4215bdbe86b527c49598daad3c97e7491d` |
-| portal/src/components/ui.tsx | `09ca2ba083fffda7e8f44ed874551bb34e4fe4184d4e5ba6c4ababa377963e7e` |
+| portal/src/components/ui.tsx | `0898f29fce610c05dd5ddd21a48d9ef59bd83bd79fab109b7f27c9200da72ccf` |
 | portal/src/lib/backup.ts | `7928a4aa42ff117694ddb3e91b72844c10fc68fc0dab2b7a0552dc20b1f6bf8b` |
 | portal/src/lib/backupFolder.ts | `64eb61eb987f9186e8138a1977d0dd5ad0279d246ef79afcd29c6eeebd3bebbf` |
 | portal/src/lib/cache.ts | `ed2ffb38d7a76aaeb1d96b91d3303826187e7a4148faaeeef3300ce47b5bfa31` |
@@ -145,12 +150,12 @@
 | portal/src/lib/trust.ts | `a8760838c6595c996ad0cb3b4e13e5aafda086dfdd6dd868e66b3584692cc439` |
 | portal/src/lib/zip.ts | `550ef7db0bea2658a65e4f314a3605d4ba10a45490a68a7d422860033fb3383a` |
 | portal/src/main.tsx | `d4f896b8431e2995744daea33b9566e37ac5ac8735d501aa8d8cda2bd413c624` |
-| portal/src/pages/Clients.tsx | `d68517ce77d2f2758073d91e93b3e5d4bdf5f151c4ceed36a63f0c8c359cf8d1` |
+| portal/src/pages/Clients.tsx | `a57b85dcdad556635415cac1ea8581e3d93da1d3d806c2a6de7d022746cf66e7` |
 | portal/src/pages/Fonts.tsx | `cbb9dd59ba287e7dff7069ad1023b932633316b0663a69cc3827ac86b312679a` |
 | portal/src/pages/Issue.tsx | `a163fd21e762b9d9b2a516ba645981c7810134e106754b0212fc8a7fbc954d6c` |
 | portal/src/pages/Legal.tsx | `c90271454e609564a2839a3ec19ed68e9395847776644ccc272f8d25aa1e048c` |
 | portal/src/pages/Login.tsx | `d2d56fd2d6bf3810c26721bf2f1ce2fb34ee83c03abd5f12536b988178329cbf` |
-| portal/src/pages/Orders.tsx | `2baa6c1e9448ad87011271a893bae9a1a01bc66a08b621a09901d693325f0645` |
+| portal/src/pages/Orders.tsx | `a384139f9364da649e3bd67a68d56cc83621c77299af12384247284535b8e955` |
 | portal/src/pages/Overview.tsx | `fcbd14e07faf752ac276afb6cffa1efcd4fa34e9db4e692f7636874cf4fbc9d8` |
 | portal/src/pages/ResetPassword.tsx | `450b3f93103fd0e84d49b31df0e783ac5a2db2abc5293ad62c65adc38adc835b` |
 | portal/src/pages/Security.tsx | `42a2c879995f414114328ea41fb82378cc04a89029fb9bea992db85837705669` |
@@ -158,8 +163,8 @@
 | portal/src/pages/Trace.tsx | `fe4f9f2e9b6b40bb71fa9a1a862c49b6d3058213d17d87527cc00b675ee03673` |
 | portal/src/pages/VerifyEmail.tsx | `c2a653dd5a815366fca36c9bc89deb8ccc4600a1d18ee41c02b7ced0afc9ee12` |
 | portal/src/pages/Welcome.tsx | `7d0ea44bf5a3e099047d4525ee36beb8044d64d97c49f6eb886921e970d8b25c` |
-| portal/src/styles/theme-v9-ext.css | `de47abf5e7d3ce23b08e9f957c4d06eccc5ffb6290ad5a0912601038149bf797` |
-| portal/src/styles/theme-v9.css | `23cbfaa179099f46d4e84e5ccc3e37fd0e3fe66988d7e04d870e401f4dc407fa` |
+| portal/src/styles/theme-v9-ext.css | `e3b0d3d6837d2ca66c616a32edd4d85ea2afb3e682cb61c6b735ddec3b3a6abe` |
+| portal/src/styles/theme-v9.css | `321ac49261459c2acc78b0c144f8086124c70fc758d10f05aaa45e7e5079fa4e` |
 | portal/src/vite-env.d.ts | `65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5` |
 | portal/tsconfig.json | `8f2c000dd69ebc121b15206fe406135410a3e2217c19c48bc5350e71301d5596` |
 | portal/vite.config.ts | `f7f264e642501b7f683abb9f33be9cb63b4d83528f80290f62e7d5c0f5f77e54` |

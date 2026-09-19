@@ -236,6 +236,10 @@ html.platform-win .page-head { margin-bottom: 52px; }
 .btn-md { height: 36px; }
 .btn-sm { height: 29px; padding: 0 10px; font-size: 12px; }
 .btn-icon { height: 36px; padding: 0 12px; }
+/* 弹窗底部动作行里的图标按钮：与 .btn 同尺寸的 36 方盒、图标居中。
+   动作多时用它收低频项（复制 / 归档 / 作废），文字按钮才不至于堆成折行
+   —— 宽度账与取舍见 skill「弹窗的出口与动作行宽度」。 */
+.modal-actions .btn-icon { width: 36px; padding: 0; }
 .btn-danger { border: 1px solid var(--strong); background: none; color: var(--rust); }
 .btn-danger:hover:not(:disabled) { background: var(--rust-light); }
 /* 危险操作的"已确认"态：锈红实底。ConfirmButton 一直在用这个类名，但此前从未定义过
@@ -788,6 +792,20 @@ select.input { appearance: auto; }
   from { opacity: 1; transform: none; }
   to   { opacity: 0; transform: translateY(6px); }
 }
+/* 右上角关闭出口（2026-09-19）：原型没有这个件，按原型语言补 ——
+   线性、无描边无底色，hover 才给一层 --subtle；✕ 是 24 网格 1.8 细线（同 Icon.tsx 全局口径）。 */
+.modal { position: relative; }
+.modal-x {
+  position: absolute; top: 14px; right: 14px;
+  width: 28px; height: 28px; padding: 0;
+  display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: none;
+  color: var(--muted); cursor: pointer;
+  transition: background 140ms var(--ease), color 140ms var(--ease);
+}
+.modal-x:hover { background: var(--subtle); color: var(--ink); }
+/* 标题别顶到 ✕ 上：客户名是用户自己填的，长度不可控 */
+.modal h2 { padding-right: 30px; }
 
 /* 定位只由 host 负责。.toast 自己写 position:fixed 会脱离 host 的 flex 流 ——
    实测两条 toast 的 top/left 逐像素相同（后面那条完全盖住前面），gap 与 column 全部失效。

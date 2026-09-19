@@ -238,7 +238,7 @@ export default function Clients() {
       {/* ── 客户详情卡（列表点击出卡；信息拼接全部在本地完成——姓名在本机，订单/金额在云端） ── */}
       {detail && (
         <Modal onClose={() => setDetailId(null)} label={`客户详情：${detail.name}`}>
-          {(close) => (<>
+          {() => (<>
             <h2>{detail.name}</h2>
             <div className="kv"><div className="kv-k">联系方式</div>
               <div className="kv-v">{detail.email || <span style={{ color: "var(--muted)" }}>—</span>}</div></div>
@@ -273,7 +273,6 @@ export default function Clients() {
               </div>
             </div>
             <div className="modal-actions">
-              <Button onClick={close}>关闭</Button>
               {/* 编辑是「关掉本框、开另一个框」的切换，不能走 close（否则两层遮罩叠着淡） */}
               <Button variant="primary" onClick={() => { setDetailId(null); startEdit(detail); }}>编辑资料</Button>
             </div>
