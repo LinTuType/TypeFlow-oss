@@ -18,8 +18,10 @@ import { fileURLToPath } from "node:url";
 import { embedWatermark } from "../src/embed.js";
 import { traceWatermark, readNameId256 } from "../src/trace.js";
 import { runSelection } from "../src/webv1.js";
+import { shiftAmplitude } from "../src/amplitude.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
 import { parseSfnt, parseCmap } from "../src/ttf/reader.js";
+import { unitsPerEmOf } from "../src/ttf/sfnt.js";
 import { rebuildFont } from "../src/ttf/writer.js";
 import { readGlyphRaw } from "../src/ttf/glyf.js";
 import { FONT_HYBUDAI, FONT_XINGYUN, resolveFont } from "./fontPath.js";
@@ -72,7 +74,19 @@ async function verifyShifts(fontPath: string, order: string): Promise<string[]> 
 
   const errors: string[] = [];
 
-  // 锚定字：期望 bit=1 → +2，bit=0 → -2
+  // 位移幅度由字体 `head.unitsPerEm` 决定（amplitude.ts）：upm 1000 → ±2，upm 2000 → ±4。
+  // ⚠️ 期望值从 selection 里取，**不在测试里另写一份公式** —— 否则公式改了测试会跟着错。
+  const amp = sel.shift_amplitude;
+  const upm = unitsPerEmOf(origRaw);
+  if (amp !== shiftAmplitude(upm)) {
+    errors.push(`幅度不自洽: selection=${amp} 而 upm ${upm} 应得 ${shiftAmplitude(upm)}`);
+  }
+  if (amp !== 2 && amp !== 4) {
+    // 这两个样本分别是 upm 1000 与 upm 2000；出现别的值说明样本换了，断言需重新标定
+    errors.push(`样本幅度未标定: upm=${upm} ⇒ ${amp}（现有断言的边界只覆盖 2 / 4）`);
+  }
+
+  // 锚定字：期望 bit=1 → +amp，bit=0 → −amp
   const expanded: number[] = [];
   for (const b of sel.bits) expanded.push(b, b, b);
   sel.anchors.forEach((cp, i) => {
@@ -81,24 +95,24 @@ async function verifyShifts(fontPath: string, order: string): Promise<string[]> 
     const origX = glyphXMinFromRaw(origRaw, gid);
     const markX = glyphXMinFromRaw(markRaw, gid);
     if (origX === null || markX === null) return;
-    const expect = expanded[i] === 1 ? 2 : -2;
+    const expect = expanded[i] === 1 ? amp : -amp;
     const got = markX - origX;
     if (got !== expect) errors.push(`锚定 U+${cp.toString(16)} 位移 ${got} ≠ ${expect}`);
   });
 
-  // 配对字：bit=1 → -2，bit=0 → +2（反向）
+  // 配对字：bit=1 → −amp，bit=0 → +amp（反向）
   sel.pairs.forEach((cp, i) => {
     const gid = origCmap.get(cp);
     if (gid === undefined) return;
     const origX = glyphXMinFromRaw(origRaw, gid);
     const markX = glyphXMinFromRaw(markRaw, gid);
     if (origX === null || markX === null) return;
-    const expect = expanded[i] === 1 ? -2 : 2;
+    const expect = expanded[i] === 1 ? -amp : amp;
     const got = markX - origX;
     if (got !== expect) errors.push(`配对 U+${cp.toString(16)} 位移 ${got} ≠ ${expect}`);
   });
 
-  // 扰动字：位移 ∈ noise_shifts（允许 ±2 但非锚定/配对）
+  // 扰动字：位移 ∈ noise_shifts（幅度与锚定**同一个 amp**，否则锚定字一眼可挑）
   for (const cpStr of Object.keys(sel.noise_shifts)) {
     const cp = Number(cpStr);
     const gid = origCmap.get(cp);
@@ -108,6 +122,7 @@ async function verifyShifts(fontPath: string, order: string): Promise<string[]> 
     if (origX === null || markX === null) continue;
     const expect = sel.noise_shifts[cpStr];
     const got = markX - origX;
+    if (Math.abs(expect) > amp) errors.push(`扰动 U+${cp.toString(16)} 幅度 ${expect} 超出 ±${amp}`);
     if (expect !== 0 && got !== expect) errors.push(`扰动 U+${cp.toString(16)} 位移 ${got} ≠ ${expect}`);
   }
 

@@ -7,13 +7,15 @@
  *   · 双栏：最近订单（线性列表） + 继续工作（入口卡）
  *   · 非卡片化，去 Section 阴影包裹
  *
- * 数据源与旧仪表盘一致：apiDashboard.stats() + apiOrders.list()
+ * 数据源：apiDashboard.stats()（内含订单与字体登记）+ 本机三段（客户 / 订单关联 / 字体库）。
+ * 读数据一律走 lib/cache.ts，本页另存一份快照 ⇒ 从别的页切回来首帧即内容，不闪骨架。
  */
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiDashboard, apiOrders, type OrderInfo } from "../api/client";
+import { apiDashboard, type OrderInfo } from "../api/client";
 import { getTenant } from "../api/client";
+import { PAGE_KEYS, peekPage, rememberPage } from "../lib/cache";
 import { listCustomers } from "../lib/localCustomers";
 import { listOrderNotes } from "../lib/localOrders";
 import { listLocalFonts } from "../lib/localFonts";
@@ -22,6 +24,24 @@ import { toast } from "../lib/toast";
 import { PageHeader, Spinner } from "../components/ui";
 import LocalDataNotice from "../components/LocalDataNotice";
 import { IconSpark, IconScanSearch, IconLayers } from "../components/Icon";
+
+interface Stats {
+  fonts_total: number;
+  clients_total: number;
+  orders_total: number;
+  orders_issued: number;
+  orders_active: number;
+  orders_draft: number;
+}
+
+/** 这一页渲染所需的整套状态 —— 存成快照，下次进来直接用，首帧就是内容 */
+interface OvSnap {
+  stats: Stats;
+  orders: OrderInfo[];
+  clientNameById: Map<string, string>;
+  fontNameById: Map<string, string>;
+  licenseTypeByOrderId: Map<string, string>;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -46,32 +66,41 @@ function isPending(o: OrderInfo) {
 }
 
 export default function Overview() {
-  const [stats, setStats] = useState<{
-    fonts_total: number;
-    clients_total: number;
-    orders_total: number;
-    orders_issued: number;
-    orders_active: number;
-    orders_draft: number;
-  } | null>(null);
-  const [orders, setOrders] = useState<OrderInfo[]>([]);
-  const [clientNameById, setClientNameById] = useState<Map<string, string>>(new Map());
-  const [fontNameById, setFontNameById] = useState<Map<string, string>>(new Map());
-  const [licenseTypeByOrderId, setLicenseTypeByOrderId] = useState<Map<string, string>>(new Map());
-  const [loading, setLoading] = useState(true);
+  /**
+   * 首帧直接取上次离开本页时的快照（无快照 = 首次进这一页 / 中间有过写操作）。
+   * 这就是"切回来不再闪骨架"的全部机制：数据由 cache.ts 那层挡住重复请求，
+   * 这里再把**上一次算好的状态**直接摆上去。
+   */
+  const [init] = useState(() => peekPage<OvSnap>(PAGE_KEYS.overview) ?? null);
+  const [stats, setStats] = useState<Stats | null>(init?.stats ?? null);
+  const [orders, setOrders] = useState<OrderInfo[]>(init?.orders ?? []);
+  const [clientNameById, setClientNameById] = useState<Map<string, string>>(init?.clientNameById ?? new Map());
+  const [fontNameById, setFontNameById] = useState<Map<string, string>>(init?.fontNameById ?? new Map());
+  const [licenseTypeByOrderId, setLicenseTypeByOrderId] = useState<Map<string, string>>(init?.licenseTypeByOrderId ?? new Map());
+  const [loading, setLoading] = useState(init === null);
   const who = getTenant() ?? "灵兔字形";
 
   const load = async () => {
     try {
-      const [s, o, cs, notes, fonts] = await Promise.all([
-        apiDashboard.stats(), apiOrders.list(), listCustomers(), listOrderNotes(), listLocalFonts(),
+      // 订单只取一次：stats() 内部就是拿订单与字体登记算出来的，顺手把订单一并带回来
+      const [s, cs, notes, fonts] = await Promise.all([
+        apiDashboard.stats(), listCustomers(), listOrderNotes(), listLocalFonts(),
       ]);
-      setStats(s);
-      setOrders(o.orders ?? []);
-      setClientNameById(new Map(cs.map((c) => [c.id, c.name])));
-      setLicenseTypeByOrderId(new Map(notes.filter((n) => n.licenseType).map((n) => [n.orderId, n.licenseType as string])));
+      const nextOrders = s.orders ?? [];
+      const nextClients = new Map(cs.map((c) => [c.id, c.name]));
+      const nextLicense = new Map(notes.filter((n) => n.licenseType).map((n) => [n.orderId, n.licenseType as string]));
       // 字体名取本机字体库（云端自 2026-09-17 起不存字体名 ⇒ order.font_name 恒为空）
-      setFontNameById(new Map(fonts.map((f) => [f.id, f.name])));
+      const nextFonts = new Map(fonts.map((f) => [f.id, f.name]));
+
+      setStats(s);
+      setOrders(nextOrders);
+      setClientNameById(nextClients);
+      setLicenseTypeByOrderId(nextLicense);
+      setFontNameById(nextFonts);
+      rememberPage<OvSnap>(PAGE_KEYS.overview, {
+        stats: s, orders: nextOrders,
+        clientNameById: nextClients, fontNameById: nextFonts, licenseTypeByOrderId: nextLicense,
+      });
     } catch (e) {
       toast.error("统计加载失败", { detail: (e as Error).message });
     } finally {

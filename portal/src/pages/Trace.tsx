@@ -19,6 +19,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "../lib/toast";
 import { fullTrace, sha256Hex, readSelfClaim, type FullTraceOutcome, type TracePhase } from "../lib/trace";
 import { listLocalFonts, getLocalFontData, type LocalFont } from "../lib/localFonts";
+import { PAGE_KEYS, peekPage, rememberPage } from "../lib/cache";
 import { apiTrace } from "../api/client";
 import {
   newReportNo, recordFromOutcome, saveTraceRecord, listTraceRecords, removeTraceRecord,
@@ -44,9 +45,16 @@ const TRACE_PHASE_LABEL: Record<TracePhase, string> = {
   compare: "比对各通道水印信号",
 };
 
+/* 追溯页快照：本机字体库 + 历史记录两份列表（进行中的分析不存） */
+interface TraceSnap {
+  fonts: Array<Omit<LocalFont, "data">>;
+  history: TraceRecord[];
+}
+
 export default function Trace() {
-  const [fonts, setFonts] = useState<Array<Omit<LocalFont, "data">>>([]);
-  const [loading, setLoading] = useState(true);
+  const [init] = useState(() => peekPage<TraceSnap>(PAGE_KEYS.trace) ?? null);
+  const [fonts, setFonts] = useState<Array<Omit<LocalFont, "data">>>(init?.fonts ?? []);
+  const [loading, setLoading] = useState(init === null);
   const [importBusy, setImportBusy] = useState(false);
 
   // 就地展开（同时只开一个，同签发页）
@@ -65,7 +73,7 @@ export default function Trace() {
 
   const [busy, setBusy] = useState(false);
   const [record, setRecord] = useState<TraceRecord | null>(null);
-  const [history, setHistory] = useState<TraceRecord[]>([]);
+  const [history, setHistory] = useState<TraceRecord[]>(init?.history ?? []);
   /** 过程槽日志：按真实阶段推进逐条累加；traceDone 后槽切到导出动作 */
   const [logLines, setLogLines] = useState<string[]>([]);
   const [traceDone, setTraceDone] = useState(false);
@@ -73,8 +81,13 @@ export default function Trace() {
   const [delBusy, setDelBusy] = useState(false);
 
   const load = useCallback(async () => {
-    setFonts(await listLocalFonts().catch(() => []));
-    setHistory(await listTraceRecords().catch(() => []));
+    const [lf, tr] = await Promise.all([
+      listLocalFonts().catch(() => []),
+      listTraceRecords().catch(() => []),
+    ]);
+    setFonts(lf);
+    setHistory(tr);
+    rememberPage<TraceSnap>(PAGE_KEYS.trace, { fonts: lf, history: tr });
     setLoading(false);
   }, []);
   useEffect(() => { void load(); }, [load]);

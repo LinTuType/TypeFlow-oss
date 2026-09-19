@@ -4,10 +4,14 @@
  * 从 `embed.ts` 抽出来，是为了让 TTF 与 OTF 两条路走**完全同一套**码点→gid→位移的换算与冲突检测：
  * 只要这里只有一份实现，"两种字体签出来的水印语义一致"才是结构性成立的，而不是靠两边小心对齐。
  *
- * 通道约定（与 webv1 的选择规则配对）：
- *   通道 A（锚定，60 位）：bit=1 → +2，bit=0 → -2
- *   通道 B（配对，60 位）：反向 —— bit=1 → -2，bit=0 → +2
- *   扰动（100 位）：noise_shifts[码点]（可能为 0 → 该字形不动）
+ * 通道约定（与 webv1 的选择规则配对；`A` = `selection.shift_amplitude`）：
+ *   通道 A（锚定，60 位）：bit=1 → +A，bit=0 → −A
+ *   通道 B（配对，60 位）：反向 —— bit=1 → −A，bit=0 → +A
+ *   扰动（100 位）：noise_shifts[码点]（值域 [−A, +A]，可能为 0 → 该字形不动）
+ *
+ * ⚠️ **A 不是常量**：它由字体 `head.unitsPerEm` 决定（见 `amplitude.ts`）。
+ *    这里刻意**只读 `selection.shift_amplitude`** —— 不让调用方各自传一个数进来，
+ *    否则"锚定用 4、扰动还用 2"这种不自洽会在产物里静默发生（锚定字一眼可挑）。
  */
 
 import type { SelectionResult } from "./webv1.js";
@@ -56,6 +60,14 @@ export function buildShiftMap(
   const expanded: number[] = [];
   for (const b of bits) expanded.push(b, b, b); // 20 bit 展开成 60 位（每位 3 个字形冗余）
 
+  // 位移幅度：**只认选择结果里的这一个值**（由字体 upm 推导，见 amplitude.ts）。
+  // 三个通道共用它 —— 只用在一处会让信号与噪声幅度不一致。
+  const amp = selection.shift_amplitude;
+  if (!Number.isInteger(amp) || amp < 1) {
+    // fail closed：拿不到幅度就不签 —— 猜一个值会静默产出"锚定与扰动不同强度"的字形
+    throw new Error(`位移幅度非法: shift_amplitude=${String(amp)}（应由字体 unitsPerEm 推导，最小 1）`);
+  }
+
   // ① 锚定：唯一的致命冲突来源
   selection.anchors.forEach((cp, i) => {
     const gid = cmap.get(cp);
@@ -91,9 +103,9 @@ export function buildShiftMap(
 
   const shifts = (gid: number): number => {
     const a = anchorGid.get(gid);
-    if (a !== undefined) return a === 1 ? 2 : -2; // 通道 A 正/负
+    if (a !== undefined) return a === 1 ? amp : -amp; // 通道 A 正/负
     const p = pairGid.get(gid);
-    if (p !== undefined) return p === 1 ? -2 : 2; // 通道 B 反向
+    if (p !== undefined) return p === 1 ? -amp : amp; // 通道 B 反向
     return noiseGid.get(gid) ?? 0;
   };
 

@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiOrders, type OrderInfo } from "../api/client";
+import { PAGE_KEYS, peekPage, rememberPage } from "../lib/cache";
 import { listCustomers, saveCustomer, removeCustomer, replaceCustomers, genCustomerId, type Customer } from "../lib/localCustomers";
 import { listOrderNotes, type LocalOrderNote } from "../lib/localOrders";
 import { maybeFolderBackup } from "../lib/backupFolder";
@@ -23,14 +24,23 @@ interface RowExt extends Customer {
   labelOrder: number;   // 该客户 ID 匹配的云端订单数
 }
 
+/** 本页渲染所需的整套状态 —— 存成快照，从别的页切回来时首帧即内容 */
+interface ClientsSnap {
+  customers: Customer[];
+  orders: OrderInfo[];
+  amountByOrderId: Map<string, string>;
+  notesByOrderId: Map<string, LocalOrderNote>;
+}
+
 export default function Clients() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [orders, setOrders] = useState<OrderInfo[]>([]);
+  const [init] = useState(() => peekPage<ClientsSnap>(PAGE_KEYS.clients) ?? null);
+  const [customers, setCustomers] = useState<Customer[]>(init?.customers ?? []);
+  const [orders, setOrders] = useState<OrderInfo[]>(init?.orders ?? []);
   /** 订单金额在本机订单关联里（5.6 起金额不出网） */
-  const [amountByOrderId, setAmountByOrderId] = useState<Map<string, string>>(new Map());
+  const [amountByOrderId, setAmountByOrderId] = useState<Map<string, string>>(init?.amountByOrderId ?? new Map());
   /** 本机订单关联全量（orderId → clientId / note / amount）：云端不记录客户，聚合全靠它 */
-  const [notesByOrderId, setNotesByOrderId] = useState<Map<string, LocalOrderNote>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const [notesByOrderId, setNotesByOrderId] = useState<Map<string, LocalOrderNote>>(init?.notesByOrderId ?? new Map());
+  const [loading, setLoading] = useState(init === null);
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
   /** 客户详情卡（列表点击出卡——对齐桌面版 DetailPanel，网页版用点击而非 hover） */
@@ -46,10 +56,17 @@ export default function Clients() {
   const load = useCallback(async () => {
     try {
       const [cs, os, notes] = await Promise.all([listCustomers(), apiOrders.list(), listOrderNotes()]);
+      const nextOrders = os.orders ?? [];
+      const nextAmount = new Map(notes.filter((n) => n.amount).map((n) => [n.orderId, n.amount!]));
+      const nextNotes = new Map(notes.map((n) => [n.orderId, n]));
+
       setCustomers(cs);
-      setOrders(os.orders ?? []);
-      setAmountByOrderId(new Map(notes.filter((n) => n.amount).map((n) => [n.orderId, n.amount!])));
-      setNotesByOrderId(new Map(notes.map((n) => [n.orderId, n])));
+      setOrders(nextOrders);
+      setAmountByOrderId(nextAmount);
+      setNotesByOrderId(nextNotes);
+      rememberPage<ClientsSnap>(PAGE_KEYS.clients, {
+        customers: cs, orders: nextOrders, amountByOrderId: nextAmount, notesByOrderId: nextNotes,
+      });
     } catch (e) {
       toast.error("客户数据加载失败", { detail: (e as Error).message });
     } finally {

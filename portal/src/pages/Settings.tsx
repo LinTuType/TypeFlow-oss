@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import { ALGO_VERSION } from "@engine/webv1";
 import { apiAudit, apiAccount, apiFonts, apiOrders, apiAuth, type AuditEntry } from "../api/client";
 import { clearToken, getEmailVerified, setEmailVerified } from "../api/client";
+import { PAGE_KEYS, peekPage, rememberPage } from "../lib/cache";
 import { listLocalFonts, removeLocalFont } from "../lib/localFonts";
 import { listCustomers, removeCustomer } from "../lib/localCustomers";
 import { listOrderNotes, clearAllOrderNotes } from "../lib/localOrders";
@@ -48,6 +49,22 @@ const SEAL_OPTIONS: { value: SealShape; label: string }[] = [
 
 type ItemKey = "brand" | "schemes" | "data" | "keys" | "account";
 
+/** 设置页首屏要用的那批「计数 + 本地文件夹状态」—— 存成快照，切回来首帧即内容 */
+interface SettingsSnap {
+  fontCount: number;
+  customerCount: number;
+  noteCount: number;
+  traceCount: number;
+  schemeRefs: Set<string>;
+  audit: AuditEntry[];
+  cloudFonts: number | null;
+  cloudOrders: number | null;
+  folderName: string | null;
+  folderPerm: "granted" | "prompt" | "denied" | null;
+  lastFolderBk: number | null;
+  canUndo: boolean;
+}
+
 const ITEM_META: { key: ItemKey; title: string; desc: string }[] = [
   { key: "brand", title: "厂牌信息", desc: "名称、简称与官网 · 用于授权书抬头" },
   { key: "schemes", title: "授权方案", desc: "内置三项可编辑 · 支持自定义与隐藏" },
@@ -69,7 +86,12 @@ function BodyHead({ children }: { children: React.ReactNode }) {
 }
 
 export default function Settings() {
-  const [loading, setLoading] = useState(true);
+  /**
+   * 上次离开本页时的整套计数与本地文件夹状态 —— 有它首帧即内容，不再整页一句「载入设置…」。
+   * 文件夹权限这类值仍然会在挂载后重算一次（`load()` 照旧跑），快照只是首帧的顶替品。
+   */
+  const [init] = useState(() => peekPage<SettingsSnap>(PAGE_KEYS.settings) ?? null);
+  const [loading, setLoading] = useState(init === null);
   const [busy, setBusy] = useState(false);
   const [openItem, setOpenItem] = useState<ItemKey | null>(null);
   const close = () => setOpenItem(null);
@@ -92,20 +114,20 @@ export default function Settings() {
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState({ label: "", desc: "", scopeText: "" });
   /** 已被本机历史订单引用的方案 key（引用中的自定义方案只能隐藏、不能删） */
-  const [schemeRefs, setSchemeRefs] = useState<Set<string>>(new Set());
+  const [schemeRefs, setSchemeRefs] = useState<Set<string>>(init?.schemeRefs ?? new Set());
 
   // 本地数据
-  const [fontCount, setFontCount] = useState(0);
-  const [customerCount, setCustomerCount] = useState(0);
-  const [noteCount, setNoteCount] = useState(0);
-  const [traceCount, setTraceCount] = useState(0);
+  const [fontCount, setFontCount] = useState(init?.fontCount ?? 0);
+  const [customerCount, setCustomerCount] = useState(init?.customerCount ?? 0);
+  const [noteCount, setNoteCount] = useState(init?.noteCount ?? 0);
+  const [traceCount, setTraceCount] = useState(init?.traceCount ?? 0);
 
   // 云端条数（账号与合规 / 数据与备份里逐项说明用；取不到显示 —，不影响页面）
-  const [cloudFonts, setCloudFonts] = useState<number | null>(null);
-  const [cloudOrders, setCloudOrders] = useState<number | null>(null);
+  const [cloudFonts, setCloudFonts] = useState<number | null>(init?.cloudFonts ?? null);
+  const [cloudOrders, setCloudOrders] = useState<number | null>(init?.cloudOrders ?? null);
 
   // 审计日志（服务端操作台账；读取失败不影响页面）
-  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>(init?.audit ?? []);
 
   // 导入 / 撤销导入（走快照）共用 busy 与文件选择
   const [bkBusy, setBkBusy] = useState(false);
@@ -113,12 +135,12 @@ export default function Settings() {
 
   // 本地文件夹（统一绑定：备份目标 + 字体添加入口，File System Access API）
   const fsSupported = isFsaSupported();
-  const [folderName, setFolderName] = useState<string | null>(null);
-  const [folderPerm, setFolderPerm] = useState<"granted" | "prompt" | "denied" | null>(null);
-  const [lastFolderBk, setLastFolderBk] = useState<number | null>(null);
+  const [folderName, setFolderName] = useState<string | null>(init?.folderName ?? null);
+  const [folderPerm, setFolderPerm] = useState<"granted" | "prompt" | "denied" | null>(init?.folderPerm ?? null);
+  const [lastFolderBk, setLastFolderBk] = useState<number | null>(init?.lastFolderBk ?? null);
   const [scanBusy, setScanBusy] = useState(false);
   const [bkBusy2, setBkBusy2] = useState(false);
-  const [canUndo, setCanUndo] = useState(false);
+  const [canUndo, setCanUndo] = useState(init?.canUndo ?? false);
 
   // 账号与合规（批次 4）
   const [showDelInput, setShowDelInput] = useState(false);
@@ -137,33 +159,53 @@ export default function Settings() {
         apiFonts.list().catch(() => ({ fonts: [] })),
         apiOrders.list().catch(() => ({ orders: [] })),
       ]);
-      setFontCount(lf.length);
-      setCustomerCount(cs.length);
-      setNoteCount(notes.length);
-      setSchemeRefs(new Set(notes.map((n) => n.licenseType).filter((k): k is string => !!k)));
-      setTraceCount(tr.length);
-      setAudit(a.events ?? []);
-      setCloudFonts((cf.fonts ?? []).length);
-      setCloudOrders((co.orders ?? []).length);
+      const next: SettingsSnap = {
+        fontCount: lf.length,
+        customerCount: cs.length,
+        noteCount: notes.length,
+        traceCount: tr.length,
+        schemeRefs: new Set(notes.map((n) => n.licenseType).filter((k): k is string => !!k)),
+        audit: a.events ?? [],
+        cloudFonts: (cf.fonts ?? []).length,
+        cloudOrders: (co.orders ?? []).length,
+        folderName: init?.folderName ?? null,
+        folderPerm: init?.folderPerm ?? null,
+        lastFolderBk: init?.lastFolderBk ?? null,
+        canUndo: false,
+      };
+
+      setFontCount(next.fontCount);
+      setCustomerCount(next.customerCount);
+      setNoteCount(next.noteCount);
+      setSchemeRefs(next.schemeRefs);
+      setTraceCount(next.traceCount);
+      setAudit(next.audit);
+      setCloudFonts(next.cloudFonts);
+      setCloudOrders(next.cloudOrders);
       if (fsSupported) {
         const h = await getFolderHandle();
         if (h) {
-          setFolderName(h.name);
-          setFolderPerm(await checkFolderPerm(h));
+          next.folderName = h.name;
+          next.folderPerm = await checkFolderPerm(h);
         } else {
-          setFolderName(null);
-          setFolderPerm(null);
+          next.folderName = null;
+          next.folderPerm = null;
         }
+        setFolderName(next.folderName);
+        setFolderPerm(next.folderPerm);
         const bs = await getBackupFolderState();
-        setLastFolderBk(bs?.lastBackupAt ?? null);
+        next.lastFolderBk = bs?.lastBackupAt ?? null;
+        setLastFolderBk(next.lastFolderBk);
       }
-      setCanUndo(await hasSnapshot());
+      next.canUndo = await hasSnapshot();
+      setCanUndo(next.canUndo);
+      rememberPage(PAGE_KEYS.settings, next);
     } catch {
       /* 本地库读取失败不影响页面渲染 */
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fsSupported, init]);
 
   useEffect(() => { void load(); }, [load]);
 

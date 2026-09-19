@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { embedWatermark, findExistingWatermark } from "../src/embed.js";
 import { traceWatermark } from "../src/trace.js";
 import { verifyOtfOutput } from "../src/cff/embed.js";
+import { shiftAmplitude } from "../src/amplitude.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
 import { parseSfnt, parseCmap, assertSupportedFont, TtfParseError } from "../src/ttf/reader.js";
 import { rebuildFont } from "../src/ttf/writer.js";
@@ -449,6 +450,57 @@ async function testOtfOutputGuard(): Promise<void> {
 
 
 /**
+ * 位移幅度按 em 归一化 + 升版本号后的追溯回退 —— 两道守门断言。
+ *
+ * ① **公式本身**（含"半数"边界）：JS `Math.round` 是**半数向上**，Python 侧必须写
+ *    `math.floor(x + 0.5)` 才同式（Python 内置 `round` 是半数取偶）。
+ *    这里把边界值钉住，免得哪天有人"顺手改成 toFixed / 内置 round"而在 750/1250 这类
+ *    upm 上两端分叉 —— 那种分叉不会报错，只会让参考实现与引擎对不上。
+ *
+ * ② **升版本号（web-v1/v2 → web-v3/v4）之后的追溯回退**：算法版本号进 `canonical_context`
+ *    ⇒ 进 `order_root`。Name 256 被删时不知道签发年代 ⇒ 追溯必须按容器把两代都试一遍
+ *    （`trace.ts` 的 `versions`）。只试当前版本会让"旧单 + 水印记录被清掉"这条路径
+ *    静默查不出来 —— `order_root` 会 derive 错、位全错、判「无法确认」，且不报任何异常。
+ */
+function testShiftAmplitudeFormula(): void {
+  const cases: Array<[number, number]> = [
+    [256, 1], [500, 1], [512, 1], [749, 1],
+    [750, 2], [1000, 2],
+    [1250, 3], [1750, 4], [2000, 4], [2048, 4],
+  ];
+  const bad = cases.filter(([upm, want]) => shiftAmplitude(upm) !== want);
+  check("幅度公式：max(1, round(upm × 0.002))（含半数边界 750/1250/1750）",
+    bad.length === 0, bad.map(([u, w]) => `${u}→${shiftAmplitude(u)}≠${w}`).join(" "));
+}
+
+async function testLegacyVersionFallback(): Promise<void> {
+  const orderId = "ORD-LEGACY-V1";
+  const fontData = new Uint8Array(readFileSync(FONT));
+
+  // 用 **web-v1 的上下文**签一份（order_root 按 web-v1 派生）—— 等价于升版本号之前的存量订单
+  const legacy = await embedWatermark({
+    fontData, masterKey: MASTER_KEY, provider: NODE_CRYPTO, tenantId: TENANT, orderId,
+    algoVersion: "web-v1",
+  });
+  check("能按历史版本号签发，Name 256 写的是签发当时的那个版本",
+    (() => { try { return JSON.parse(legacy.nameId256).algo_version === "web-v1"; } catch { return false; } })(),
+    legacy.nameId256);
+
+  // 抹掉 Name 256（"客户拿工具过了一遍字体"的常见形态）：此时追溯既没有版本线索、也没有配方
+  const stripped = rebuildFont(parseSfnt(legacy.bytes), () => 0, null).bytes;
+  const tr = await traceWatermark({
+    originalBytes: fontData,
+    suspiciousBytes: stripped,
+    masterKey: MASTER_KEY, provider: NODE_CRYPTO, tenantId: TENANT,
+    candidateOrders: ["WRONG-A", orderId, "WRONG-B"],
+  });
+  check("旧一代（web-v1）字体在 Name 256 被删后仍能被追溯命中（多版本回退）",
+    tr.matchedOrder === orderId && (tr.verdict.level === "high" || tr.verdict.level === "trusted"),
+    `matched=${tr.matchedOrder} level=${tr.verdict.level} conf=${tr.confidence.toFixed(3)}`);
+}
+
+
+/**
  * 批次 A 的机器证明 + **交付回执的可重算性**。
  *
  * 金标是怎么来的：先 `git show HEAD:engine/src/ttf/writer.ts`（连 `name.ts` 一起）拉出**重构前**的
@@ -517,6 +569,10 @@ function testTtfGoldHashes(): void {
 
   console.log("\n── OTF 产物结构自检（坏产物拒绝签发） ──");
   await testOtfOutputGuard();
+
+  console.log("\n── 位移幅度按 em 归一化（B8）+ 升版本号后的追溯回退 ──");
+  testShiftAmplitudeFormula();
+  await testLegacyVersionFallback();
 
   console.log(`\n通过 ${pass} / ${pass + fail}`);
   process.exit(fail > 0 ? 1 : 0);

@@ -37,7 +37,8 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { embedWatermark, buildNameId256 } from "../src/embed.js";
+import { embedWatermark, buildNameId256, ALGO_VERSION_CFF } from "../src/embed.js";
+import { ALGO_VERSION } from "../src/webv1.js";
 import { traceWatermark } from "../src/trace.js";
 import { createNodeCryptoProvider } from "../src/crypto.node.js";
 import {
@@ -241,13 +242,13 @@ async function testEndToEnd(s: (typeof SAMPLES)[number]): Promise<void> {
     fontData: orig, masterKey: MASTER_KEY, provider: NODE_CRYPTO, tenantId: TENANT, orderId: s.order,
   });
 
-  check(`${s.label}：算法版本号是 web-v2（v1 清单已冻结声明 out_of_scope.cff_otf）`,
-    wm.selection.manifest === "web-v2", wm.selection.manifest);
+  check(`${s.label}：算法版本号是 OTF 那一代（${ALGO_VERSION_CFF}）—— 与 TTF 的 ${ALGO_VERSION} 分代`,
+    wm.selection.manifest === ALGO_VERSION_CFF, wm.selection.manifest);
   check(`${s.label}：锚定/配对/扰动数量与 TTF 侧一致`,
     wm.selection.anchors.length === 60 && wm.selection.pairs.length === 60 && wm.selection.noises.length === 100,
     `${wm.selection.anchors.length}/${wm.selection.pairs.length}/${wm.selection.noises.length}`);
 
-  const expected256 = buildNameId256("web-v2", s.order, wm.selection.font_sha256, "");
+  const expected256 = buildNameId256(ALGO_VERSION_CFF, s.order, wm.selection.font_sha256, "");
   check(`${s.label}：产物写入 Name 256（判重与第二通道依赖它）`, wm.nameId256 === expected256, wm.nameId256.slice(0, 50));
   // 改完的产物容器类型不能变（OTF 进就 OTF 出）
   check(`${s.label}：产物仍是同一容器`, assertSupportedFont(wm.bytes) === (s.tag === "CFF2" ? "cff2" : "cff"),
@@ -446,10 +447,17 @@ async function testTtfUnaffected(): Promise<void> {
   const wm = await embedWatermark({
     fontData: orig, masterKey: MASTER_KEY, provider: NODE_CRYPTO, tenantId: TENANT, orderId: "ORD-TTF-1",
   });
-  check("TTF 路径算法版本号仍是 web-v1（已签发订单的 order_root 不受影响）",
-    wm.selection.manifest === "web-v1", wm.selection.manifest);
-  check("TTF 产物 Name 256 的 algo_version 仍是 web-v1",
-    (() => { try { return JSON.parse(wm.nameId256).algo_version === "web-v1"; } catch { return false; } })());
+  // 版本号按容器分两代：TTF 用 ALGO_VERSION（web-v3）、OTF 用 ALGO_VERSION_CFF（web-v4）。
+  // ⚠️ 断言写成"等于本容器那一个、且不等于另一个" —— 硬编码字符串的话，
+  //    下次升版本号会在这里莫名其妙地红，而它真正要锁的是"两个容器不串台"。
+  const ttfVersion: string = ALGO_VERSION;
+  const cffVersion: string = ALGO_VERSION_CFF;
+  check("TTF 路径用的是 TTF 那一代的算法版本号（没有被 OTF 串台）",
+    wm.selection.manifest === ttfVersion && ttfVersion !== cffVersion,
+    `${wm.selection.manifest}（TTF=${ttfVersion} / OTF=${cffVersion}）`);
+  check("TTF 产物 Name 256 的 algo_version 与 selection 一致",
+    (() => { try { return JSON.parse(wm.nameId256).algo_version === ALGO_VERSION; } catch { return false; } })(),
+    wm.nameId256);
 }
 
 // ───────────────────────── 主流程 ─────────────────────────

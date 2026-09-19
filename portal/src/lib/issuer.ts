@@ -36,6 +36,7 @@ interface WorkerEmbedOk {
 function embedInWorker(req: {
   fontData: ArrayBuffer; orderRoot: ArrayBuffer;
   tenantId: string; orderId: string; bitsSuffix: string;
+  algoVersion?: string;
 }): Promise<WorkerEmbedOk> {
   return new Promise((resolve, reject) => {
     const w = getEmbedWorker();
@@ -71,7 +72,7 @@ export interface SignResult {
  */
 export async function localEmbed(
   data: ArrayBuffer,
-  recipe: { order_root_hex: string; order_id: string; bits_suffix?: string },
+  recipe: { order_root_hex: string; order_id: string; bits_suffix?: string; algo_version?: string },
 ): Promise<SignResult> {
   const orderRoot = new Uint8Array(
     recipe.order_root_hex.match(/.{2}/g)!.map((h) => parseInt(h, 16)),
@@ -83,6 +84,10 @@ export async function localEmbed(
     tenantId: "portal-local",
     orderId: recipe.order_id,
     bitsSuffix: recipe.bits_suffix ?? "",
+    // 把配方里的算法版本号透传给引擎：写进 Name 256 的必须是**这份订单签发当时**的版本。
+    // 历史订单的配方是 web-v1 / web-v2，「重新生成交付包」时若不透传就会写出当前版本号，
+    // 同一份历史订单的两次交付会在同一个字段上给出两个不同的值。
+    algoVersion: recipe.algo_version,
   });
   const bytes = new Uint8Array(r.bytes);
   // 本地计算水印字体哈希（完成回执 + 授权书用）

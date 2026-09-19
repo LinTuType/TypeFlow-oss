@@ -12,10 +12,11 @@
  *   - 码点→gid→位移与冲突检测（`shiftmap.buildShiftMap`）
  *   - "已带水印不能重复签发"的前置检查（`findExistingWatermark`，读 name 表，容器无关）
  *
- * ⚠️ 算法版本号：TTF（含可变）保持 `web-v1`，OTF 用 `web-v2`。
- *    `algo_version` 进 `canonical_context` ⇒ 进 `order_root` 派生。给 TTF 换版本号会让
- *    **已签发订单**的追溯上下文对不上；而 v1 清单已冻结声明 `out_of_scope.cff_otf`，
- *    OTF 是新能力 ⇒ 新版本号。
+ * ⚠️ 算法版本号按容器分两代（见 `webv1.ts` 的表）：
+ *    TTF（含可变）用 `web-v3`，OTF/CFF 用 `web-v4` —— 两者都是"按 upm 归一化幅度"那一代。
+ *    历史订单仍按**云端库里存的** `algo_version`（`web-v1` / `web-v2`）派生 `order_root`，
+ *    不受影响。给某一份字体"重放历史配方"时由调用方传入 `algoVersion`
+ *    （门户会把配方里的 `algo_version` 透传进来），这样 Name 256 里写的仍是**签发当时的**版本。
  */
 
 import { runSelection, type SelectionResult, ALGO_VERSION } from "./webv1.js";
@@ -27,8 +28,10 @@ import { rebuildFont, type EmbedOutput } from "./ttf/writer.js";
 import { buildShiftMap } from "./shiftmap.js";
 import { embedWatermarkOtf } from "./cff/embed.js";
 
-/** OTF/CFF 容器使用的算法版本号（TTF 侧仍为 web-v1，见文件头） */
-export const ALGO_VERSION_CFF = "web-v2";
+/** OTF/CFF 容器使用的算法版本号（TTF 侧为 web-v3，见 `webv1.ts` 的两代表） */
+export const ALGO_VERSION_CFF = "web-v4";
+/** 上一代 OTF 版本号（固定 ±2）—— 仅追溯回退用 */
+export const ALGO_VERSION_CFF_LEGACY = "web-v2";
 
 export interface EmbedParams {
   /** 字体原始字节 */
@@ -42,6 +45,15 @@ export interface EmbedParams {
   tenantId: string;
   orderId: string;
   bitsSuffix?: string;
+  /**
+   * 算法版本号。不传 = 按容器取当前版本（TTF `web-v3` / OTF `web-v4`）。
+   *
+   * 什么时候要传：**重放一份历史配方**（门户「重新生成交付包」）——
+   * 那时配方里的 `algo_version` 是 `web-v1` / `web-v2`，写进 Name 256 的必须是它，
+   * 否则同一份历史订单的两次交付会在同一个字段上写出两个不同的版本号。
+   * （`order_root` 由配方直接给出，所以这个值不参与密钥派生，只决定 Name 256 的标签与 `manifest`。）
+   */
+  algoVersion?: string;
 }
 
 export interface EmbedResult extends EmbedOutput {
@@ -120,7 +132,7 @@ export async function embedWatermark(params: EmbedParams): Promise<EmbedResult> 
   const raw: TtfRaw = parseSfnt(fontData);
   const cmap = parseCmap(raw).map;
 
-  // 1. 确定性选择（锚定候选固定高频字池∩cmap；algoVersion 保持 web-v1）
+  // 1. 确定性选择（锚定候选固定高频字池∩cmap；algoVersion 默认当前 TTF 版本）
   const selection = await runSelection(
     fontData,
     params.masterKey ?? new Uint8Array(0),
@@ -130,7 +142,7 @@ export async function embedWatermark(params: EmbedParams): Promise<EmbedResult> 
     params.bitsSuffix ?? "",
     loadAnchorPool(),
     params.orderRoot,
-    { algoVersion: ALGO_VERSION },
+    { algoVersion: params.algoVersion ?? ALGO_VERSION },
   );
 
   // 2. 码点 → gid → 位移（与 OTF 路径共用同一份换算与冲突检测）

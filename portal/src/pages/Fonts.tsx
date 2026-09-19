@@ -9,7 +9,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, apiFonts, apiOrders, type FontInfo } from "../api/client";
+import { apiFonts, apiOrders, type FontInfo } from "../api/client";
+import { PAGE_KEYS, peekPage, rememberPage } from "../lib/cache";
 import { listLocalFonts, removeLocalFont, type LocalFont } from "../lib/localFonts";
 import { importFontDetail, importFontFile } from "../lib/fontImport";
 import { maybeFolderBackup } from "../lib/backupFolder";
@@ -85,20 +86,26 @@ const fmtSize = (n: number) => (n ? (n / 1024 / 1024 >= 1 ? `${(n / 1024 / 1024)
 
 export default function Fonts() {
   const navigate = useNavigate();
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
+  /** 上次离开本页时的行快照 —— 有它首帧就出卡片，不再闪一次骨架 */
+  const [init] = useState(() => peekPage<Row[]>(PAGE_KEYS.fonts));
+  const [rows, setRows] = useState<Row[]>(init ?? []);
+  const [loading, setLoading] = useState(!init);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
+      // 云端字体登记走 apiFonts.list()（带缓存）—— 别再手写 api("GET", "/api/fonts")，
+      // 那样会绕过缓存层，本机每次切页仍要重发一次请求。
       const [local, cloudRes, ordersRes] = await Promise.all([
         listLocalFonts(),
-        api<{ fonts: FontInfo[] }>("GET", "/api/fonts"),
+        apiFonts.list(),
         apiOrders.list(),
       ]);
-      setRows(mergeRows(local, cloudRes.fonts ?? [], ordersRes.orders ?? []));
+      const next = mergeRows(local, cloudRes.fonts ?? [], ordersRes.orders ?? []);
+      setRows(next);
+      rememberPage(PAGE_KEYS.fonts, next);
     } catch (e) {
       toast.error("字体库加载失败", { detail: (e as Error).message });
     } finally {

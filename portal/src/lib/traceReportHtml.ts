@@ -8,7 +8,7 @@
  * 判定卡配色沿用屏幕同一套语义（绿=高可信 / 黄=存疑 / 灰=无法确认）。
  */
 
-import { channelScores, type TraceRecord } from "./traceHistory";
+import { channelScores, marginLine, type TraceRecord } from "./traceHistory";
 import { printLicenseHtml } from "./license";
 
 function esc(s: unknown): string {
@@ -37,13 +37,17 @@ export function buildTraceReportHtml(rec: TraceRecord): string {
 
   const sub = !best
     ? "没有可用的比对结果。"
-    : best.level === "high"
-      ? `可疑字体与订单 ${esc(best.orderId)} 的水印指纹完全吻合，可确认签发来源`
-      : best.level === "trusted"
-        ? `水印指纹与订单 ${esc(best.orderId)} 高度一致，检测到轻度干扰，来源基本可靠`
-        : best.level === "suspicious"
-          ? `水印指纹与订单 ${esc(best.orderId)} 部分吻合，但存在明显干扰，无法确证`
-          : "未识别出可靠的所属订单";
+    : rec.uniqueness === "multi"
+      ? "以下订单的水印特征同时成立且彼此接近，形态与「多副本取平均」一致 —— 这些订单都参与过这份字体"
+      : rec.uniqueness === "ambiguous"
+        ? "检测到多个订单的水印特征接近，但均未达确证水平，无法确定签发来源——本报告不点名订单"
+        : best.level === "high"
+          ? `可疑字体与订单 ${esc(best.orderId)} 的水印指纹完全吻合，可确认签发来源`
+          : best.level === "trusted"
+            ? `水印指纹与订单 ${esc(best.orderId)} 高度一致，检测到轻度干扰，来源基本可靠`
+            : best.level === "suspicious"
+              ? `水印指纹与订单 ${esc(best.orderId)} 部分吻合，但存在明显干扰，无法确证`
+              : "未识别出可靠的所属订单";
 
   const chips = (best?.labels ?? []).map((l) => `<span class="chip">${esc(l)}</span>`).join("");
 
@@ -68,8 +72,8 @@ export function buildTraceReportHtml(rec: TraceRecord): string {
   const candidate = best
     ? `<div class="cand">
         <div class="cand-main">
-          <div><h4>${esc(best.orderId)}</h4><p class="mono">判定「${esc(best.levelLabel)}」 · 置信度 ${esc(best.score)}%</p></div>
-          <div class="cand-score">${esc(best.score)}<small>综合一致性 / 100</small></div>
+          <div><h4>${esc(best.orderId)}</h4><p class="mono">判定「${esc(best.levelLabel)}」 · 信号质量 ${esc(best.score)}%</p></div>
+          <div class="cand-score">${esc(best.score)}<small>信号质量 / 100</small></div>
         </div>
       </div>
       ${others.length ? `<div class="others">${others.map((o) =>
@@ -130,9 +134,10 @@ export function buildTraceReportHtml(rec: TraceRecord): string {
 <div class="verdict">
   <small>${esc(best?.levelLabel ?? "无法判定")}${rec.bestOrderId ? ` · 源自 ${esc(rec.bestOrderId)}` : ""}</small>
   <h2>${sub}</h2>
-  <p>${best ? `置信度 ${esc(best.score)}%。` : ""}${rec.matched
+  <p>${best ? `信号质量 ${esc(best.score)}%。` : ""}${rec.matched
     ? "建议将本报告、原始文件和对应订单证据包一并归档。"
     : " 结果仅用于辅助判断。"}</p>
+  ${best ? `<p class="mono">${esc(marginLine(best, others))}</p>` : ""}
   <div>${chips}</div>
 </div>
 

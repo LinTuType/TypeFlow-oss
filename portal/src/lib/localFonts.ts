@@ -11,6 +11,7 @@
  */
 
 import { STORE, dbGet, dbPut, dbDelete, dbGetAll, openDb } from "./db";
+import { CACHE_KEYS, invalidate, readThrough } from "./cache";
 
 export interface LocalFont {
   id: string;              // sha256 前 16 位（与云端 font_id 一致）
@@ -47,12 +48,21 @@ export function sha256Of(buf: ArrayBuffer): Promise<string> {
 /** 保存字体到本地库（重复 id 覆盖） */
 export async function saveLocalFont(font: LocalFont): Promise<void> {
   await dbPut(STORE.FONTS, font);
+  invalidate(CACHE_KEYS.localFonts);
 }
 
-/** 列出本地字体（不含 data，轻量） */
+/**
+ * 列出本地字体（不含 data，轻量）
+ *
+ * ⚠️ 走缓存。这里值得缓存的原因不只是省一次 IndexedDB 事务：`getAll` 会把**每份字体的
+ * 二进制一起读出来**（字体动辄几 MB），就为了最后丢掉 `data` 只留元数据。
+ * 概览 / 字体库 / 订单 / 签发 / 追溯 / 设置六个页面都在读它，切页各来一次太浪费。
+ */
 export async function listLocalFonts(): Promise<Array<Omit<LocalFont, "data">>> {
-  const all = await dbGetAll<LocalFont>(STORE.FONTS);
-  return all.map(({ data, ...meta }) => meta);
+  return readThrough(CACHE_KEYS.localFonts, async () => {
+    const all = await dbGetAll<LocalFont>(STORE.FONTS);
+    return all.map(({ data, ...meta }) => meta);
+  });
 }
 
 /** 取某字体的元数据（不含文件本体）—— 显示名 / 交付文件名的唯一权威在本机 */
@@ -72,10 +82,12 @@ export async function getLocalFontData(id: string): Promise<ArrayBuffer | null> 
 /** 删除本地字体 */
 export async function removeLocalFont(id: string): Promise<void> {
   await dbDelete(STORE.FONTS, id);
+  invalidate(CACHE_KEYS.localFonts);
 }
 
 /** 删除全部本地字体（清本地数据用） */
 export async function clearAllLocalFonts(): Promise<void> {
   const all = await listLocalFonts();
   await Promise.all(all.map((f) => removeLocalFont(f.id).catch(() => void 0)));
+  invalidate(CACHE_KEYS.localFonts);
 }

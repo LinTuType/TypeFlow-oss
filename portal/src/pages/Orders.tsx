@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiOrders, apiTrace, type OrderInfo } from "../api/client";
+import { PAGE_KEYS, peekPage, rememberPage } from "../lib/cache";
 import { listCustomers } from "../lib/localCustomers";
 import { listOrderNotes, type LocalOrderNote } from "../lib/localOrders";
 import { getLocalFont, getLocalFontData, listLocalFonts, sha256Of, containerExt, type FontContainer } from "../lib/localFonts";
@@ -57,19 +58,31 @@ const termText = (note: LocalOrderNote | undefined): string => {
   return `${fmt(note?.licenseStart)} 至 ${fmt(note?.licenseEnd)}`;
 };
 
+/** 本页渲染所需的整套状态 —— 存成快照，从别的页切回来时首帧即内容 */
+interface OrdersSnap {
+  orders: OrderInfo[];
+  clientNameById: Map<string, string>;
+  clientEmailById: Map<string, string>;
+  fontNameById: Map<string, string>;
+  fontContainerById: Map<string, FontContainer>;
+  localByOrderId: Map<string, LocalOrderNote>;
+}
+
 export default function Orders() {
-  const [orders, setOrders] = useState<OrderInfo[]>([]);
-  const [clientNameById, setClientNameById] = useState<Map<string, string>>(new Map());
+  /** 上次离开本页时的整套状态 —— 有它首帧即内容 */
+  const [init] = useState(() => peekPage<OrdersSnap>(PAGE_KEYS.orders) ?? null);
+  const [orders, setOrders] = useState<OrderInfo[]>(init?.orders ?? []);
+  const [clientNameById, setClientNameById] = useState<Map<string, string>>(init?.clientNameById ?? new Map());
   /** 客户库里的交付邮箱 —— 订单本地关联里没存邮箱的老订单，靠它落到收件人 */
-  const [clientEmailById, setClientEmailById] = useState<Map<string, string>>(new Map());
-  const [fontNameById, setFontNameById] = useState<Map<string, string>>(new Map());
+  const [clientEmailById, setClientEmailById] = useState<Map<string, string>>(init?.clientEmailById ?? new Map());
+  const [fontNameById, setFontNameById] = useState<Map<string, string>>(init?.fontNameById ?? new Map());
   /**
    * 本机字体的**轮廓容器** —— 只用来定交付文件的扩展名（`.ttf` / `.otf`）。
    * 单独一张表而不是把 `fontNameById` 改成对象：那个 map 的显示语义被 E2E 锁着，不动它。
    */
-  const [fontContainerById, setFontContainerById] = useState<Map<string, FontContainer>>(new Map());
-  const [localByOrderId, setLocalByOrderId] = useState<Map<string, LocalOrderNote>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const [fontContainerById, setFontContainerById] = useState<Map<string, FontContainer>>(init?.fontContainerById ?? new Map());
+  const [localByOrderId, setLocalByOrderId] = useState<Map<string, LocalOrderNote>>(init?.localByOrderId ?? new Map());
+  const [loading, setLoading] = useState(init === null);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sel, setSel] = useState<string | null>(null);
@@ -81,14 +94,29 @@ export default function Orders() {
       const [o, cs, notes, fonts] = await Promise.all([
         apiOrders.list(), listCustomers(), listOrderNotes(), listLocalFonts(),
       ]);
-      setOrders(o.orders ?? []);
-      setClientNameById(new Map(cs.map((c) => [c.id, c.name])));
-      setClientEmailById(new Map(cs.map((c) => [c.id, c.email ?? ""])));
-      setLocalByOrderId(new Map(notes.map((n) => [n.orderId, n])));
-      setFontNameById(new Map(fonts.map((f) => [f.id, f.name])));
-      setFontContainerById(
-        new Map(fonts.filter((f) => f.container).map((f) => [f.id, f.container as FontContainer])),
+      const nextOrders = o.orders ?? [];
+      const nextClientNames = new Map(cs.map((c) => [c.id, c.name]));
+      const nextClientEmails = new Map(cs.map((c) => [c.id, c.email ?? ""]));
+      const nextLocal = new Map(notes.map((n) => [n.orderId, n]));
+      const nextFontNames = new Map(fonts.map((f) => [f.id, f.name]));
+      const nextContainers = new Map(
+        fonts.filter((f) => f.container).map((f) => [f.id, f.container as FontContainer]),
       );
+
+      setOrders(nextOrders);
+      setClientNameById(nextClientNames);
+      setClientEmailById(nextClientEmails);
+      setLocalByOrderId(nextLocal);
+      setFontNameById(nextFontNames);
+      setFontContainerById(nextContainers);
+      rememberPage<OrdersSnap>(PAGE_KEYS.orders, {
+        orders: nextOrders,
+        clientNameById: nextClientNames,
+        clientEmailById: nextClientEmails,
+        fontNameById: nextFontNames,
+        fontContainerById: nextContainers,
+        localByOrderId: nextLocal,
+      });
     } catch (e) {
       toast.error("订单加载失败", { detail: (e as Error).message });
     } finally {

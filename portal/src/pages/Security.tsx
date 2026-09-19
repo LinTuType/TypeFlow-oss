@@ -174,7 +174,7 @@ export default function Security() {
             fill="none" stroke="#97C459" strokeWidth="1.5" markerEnd="url(#trace-arrow-done)" />
           <rect x="400" y="118" width="200" height="42" rx="8" fill="#EAF3DE" stroke="#97C459" strokeWidth="1" />
           <text x="500" y="135" textAnchor="middle" fontSize="11.5" fill="#3B6D11">鉴定书</text>
-          <text x="500" y="150" textAnchor="middle" fontSize="10" fill="#3B6D11">命中订单与置信度</text>
+          <text x="500" y="150" textAnchor="middle" fontSize="10" fill="#3B6D11">命中订单与判定等级</text>
         </svg>
       </div>
 

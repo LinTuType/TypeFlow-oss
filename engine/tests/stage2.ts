@@ -37,8 +37,17 @@ const MASTER_KEY = new Uint8Array(Buffer.from(
 const TENANT = "tenant-zhong";
 const FIXTURES = [resolveFont(FONT_XINGYUN), resolveFont(FONT_HYBUDAI)];
 
+/**
+ * ⚠️ 命中判据 = **门户的口径**，与 `portal/src/lib/trace.ts` 一字不差。
+ *
+ * 原先这里用的是 `matchedOrder === order && confidence > 0.5` —— 那是条**死闸**：
+ * `grep -rn matchedOrder portal/src` 零命中，门户根本不读它，而且它的零假设正好是 0.5（毫无余量）。
+ * 用它当判据 ⇒ 这张表的"恢复率"可能比产品实际乐观，而对外文档引用的数字正是从这里来的。
+ */
+const isHit = (lv: string): boolean => lv === "high" || lv === "trusted";
+
 // 结果汇总
-type Row = { attack: string; order: string; conf: number; votes: number; total: number; hit: boolean };
+type Row = { attack: string; order: string; conf: number; votes: number; total: number; hit: boolean; levelLabel: string };
 const rows: Row[] = [];
 
 /** 追溯一次并记录（显式传候选订单：全局平移/子集化会删 Name，不能依赖 Name 256） */
@@ -56,7 +65,7 @@ async function traceRecord(
     tenantId: TENANT,
     candidateOrders: [expectOrder],
   });
-  const hit = tr.matchedOrder === expectOrder && tr.confidence > 0.5;
+  const hit = isHit(tr.verdict.level);
   rows.push({
     attack: name,
     order: expectOrder,
@@ -64,6 +73,7 @@ async function traceRecord(
     votes: tr.votes,
     total: tr.total,
     hit,
+    levelLabel: tr.verdict.levelLabel,
   });
   return hit;
 }
@@ -73,7 +83,7 @@ async function confFor(
   orig: Uint8Array,
   susp: Uint8Array,
   order: string,
-): Promise<{ conf: number; bits: number[] }> {
+): Promise<{ conf: number; bits: number[]; level: string; levelLabel: string }> {
   const tr = await traceWatermark({
     originalBytes: orig,
     suspiciousBytes: susp,
@@ -82,7 +92,7 @@ async function confFor(
     tenantId: TENANT,
     candidateOrders: [order],
   });
-  return { conf: tr.confidence, bits: tr.channelA_bits };
+  return { conf: tr.confidence, bits: tr.channelA_bits, level: tr.verdict.level, levelLabel: tr.verdict.levelLabel };
 }
 
 // ─── 主流程 ───
@@ -143,13 +153,46 @@ for (const fontPath of FIXTURES) {
 
   // ── 7. 错误订单误命中：同字体但错误 key/order 去 trace ──
   const wrongOrder = `ORD-UNRELATED-${fontName.slice(0, 6)}`;
-  const wrongConf = (await confFor(orig, wmA.bytes, wrongOrder)).conf;
-  const noFalse = wrongConf < 0.5;
-  console.log(`  [错误订单] 随机订单置信度=${wrongConf.toFixed(3)} ${noFalse ? "✅(未误命中)" : "❌(误命中!)"}`);
+  const wrong = await confFor(orig, wmA.bytes, wrongOrder);
+  const noFalse = !isHit(wrong.level);
+  console.log(`  [错误订单] 置信度=${wrong.conf.toFixed(3)} 判定「${wrong.levelLabel}」 ${noFalse ? "✅(未误命中)" : "❌(误命中!)"}`);
+
+  // ── 8. 零假设：原版槽位选错（可疑是另一份字体）+ 一组无关候选 ──
+  //    门户判"命中"只认 level ∈ {high, trusted}，所以这里必须一个都不许命中。
+  const otherFont = resolveFont(fontPath === resolveFont(FONT_XINGYUN) ? FONT_HYBUDAI : FONT_XINGYUN);
+  const unrelated = Array.from({ length: 20 }, (_, i) => `ORD-Z-${fontName.slice(0, 4)}-${String(i + 1).padStart(4, "0")}`);
+  const trZero = await traceWatermark({
+    originalBytes: orig,
+    suspiciousBytes: new Uint8Array(readFileSync(otherFont)),
+    masterKey: MASTER_KEY,
+    provider: NODE_CRYPTO,
+    tenantId: TENANT,
+    candidateOrders: unrelated,
+  });
+  const zeroOk = !isHit(trZero.verdict.level);
+  console.log(`  [零假设] 无关字体 + 20 个无关候选 → 最高分判定「${trZero.verdict.levelLabel}」 一致率=${trZero.confidence.toFixed(3)} ${zeroOk ? "✅(未误命中)" : "❌(误命中!)"}`);
+
+  // ── 9. ρ 路在位（锁住相关检测器）──
+  //    正牌水印字体上两通道的相关性都应≈1.0、有效样本=60。
+  //    这条锁的是"网页版只有 bits 一路"那个缺口：补上 ρ 后，降级阶梯探针里
+  //    "网页版不命中"从 35 格降到 5 格（余下 4 格是量化超阈、桌面同样失守）。
+  const rhoProbe = await traceWatermark({
+    originalBytes: orig,
+    suspiciousBytes: wmA.bytes,
+    masterKey: MASTER_KEY,
+    provider: NODE_CRYPTO,
+    tenantId: TENANT,
+    candidateOrders: [orderA],
+  });
+  const rm = rhoProbe.verdict.metrics;
+  const rhoOk = rm.rhoA >= 0.9 && rm.rhoB >= 0.9 && rm.rhoValid === 60;
+  console.log(
+    `  [相关检测] rhoA=${rm.rhoA.toFixed(3)} rhoB=${rm.rhoB.toFixed(3)} valid=${rm.rhoValid} ${rhoOk ? "✅" : "❌"}`,
+  );
 
   // 输出每个攻击的命中结果
   const fontRows = rows.filter((r) => r.order === orderA);
-  const allOk = clean && fontRows.filter((r) => r.hit).length === fontRows.length && noFalse && overlap < 0.5;
+  const allOk = clean && fontRows.filter((r) => r.hit).length === fontRows.length && noFalse && zeroOk && rhoOk && overlap < 0.5;
   if (allOk) { pass++; } else { fail++; }
 }
 
@@ -157,20 +200,22 @@ for (const fontPath of FIXTURES) {
 console.log(`\n${"═".repeat(70)}`);
 console.log("阶段 2 攻击测试汇总");
 console.log(`${"═".repeat(70)}`);
-console.log(`攻击类型（横跨 2 字体）`.padEnd(24), "正确订单命中率", "平均置信度");
-const byAttack = new Map<string, { hit: number; n: number; confSum: number }>();
+console.log(`攻击类型（横跨 2 字体）`.padEnd(24), "正确订单命中率", "平均置信度", "判定（各自）");
+const byAttack = new Map<string, { hit: number; n: number; confSum: number; labels: string[] }>();
 for (const r of rows) {
-  const a = byAttack.get(r.attack) ?? { hit: 0, n: 0, confSum: 0 };
+  const a = byAttack.get(r.attack) ?? { hit: 0, n: 0, confSum: 0, labels: [] };
   a.hit += r.hit ? 1 : 0;
   a.n += 1;
   a.confSum += r.conf;
+  a.labels.push(r.levelLabel);
   byAttack.set(r.attack, a);
 }
 for (const [attack, a] of byAttack) {
   console.log(
     attack.padEnd(24),
     `${a.hit}/${a.n}`.padEnd(16),
-    `${(a.confSum / a.n).toFixed(3)}`.padEnd(8),
+    `${(a.confSum / a.n).toFixed(3)}`.padEnd(12),
+    a.labels.join(" / "),
   );
 }
 console.log(`\n通过 ${pass} / ${pass + fail}`);

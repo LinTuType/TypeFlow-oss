@@ -11,6 +11,7 @@
  */
 
 import { STORE, dbGet, dbPut, dbDelete, dbGetAll, dbClear, openDb } from "./db";
+import { CACHE_KEYS, invalidate, readThrough } from "./cache";
 
 export interface Customer {
   id: string;          // 短随机 ID（不暴露任何信息）
@@ -30,18 +31,22 @@ export function genCustomerId(): string {
 /** 保存/更新客户（内置 updatedAt） */
 export async function saveCustomer(c: Customer): Promise<void> {
   await dbPut(STORE.CUSTOMERS, { ...c, updatedAt: Date.now() });
+  invalidate(CACHE_KEYS.localCustomers);
 }
 
-/** 列出全部客户（按最近更新倒序） */
+/** 列出全部客户（按最近更新倒序）—— 走缓存（概览 / 订单 / 客户 / 签发 / 设置都在读） */
 export async function listCustomers(): Promise<Customer[]> {
-  const all = await dbGetAll<Customer>(STORE.CUSTOMERS);
-  all.sort((a, b) => b.updatedAt - a.updatedAt);
-  return all;
+  return readThrough(CACHE_KEYS.localCustomers, async () => {
+    const all = await dbGetAll<Customer>(STORE.CUSTOMERS);
+    all.sort((a, b) => b.updatedAt - a.updatedAt);
+    return all;
+  });
 }
 
 /** 删除客户 */
 export async function removeCustomer(id: string): Promise<void> {
   await dbDelete(STORE.CUSTOMERS, id);
+  invalidate(CACHE_KEYS.localCustomers);
 }
 
 /* ── 批量操作 ── */
@@ -49,7 +54,7 @@ export async function removeCustomer(id: string): Promise<void> {
 /** 用一份备份替换整个客户库（恢复/导入时用）——先清空再写入 */
 export async function replaceCustomers(items: Customer[]): Promise<void> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE.CUSTOMERS, "readwrite");
     const store = tx.objectStore(STORE.CUSTOMERS);
     store.clear();
@@ -57,11 +62,13 @@ export async function replaceCustomers(items: Customer[]): Promise<void> {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+  invalidate(CACHE_KEYS.localCustomers);
 }
 
 /** 删除全部客户（清本地数据用） */
 export async function clearAllCustomers(): Promise<void> {
   await dbClear(STORE.CUSTOMERS);
+  invalidate(CACHE_KEYS.localCustomers);
 }
 
 /** 按 ID 取单个客户 */

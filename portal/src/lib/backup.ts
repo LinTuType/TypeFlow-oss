@@ -25,6 +25,7 @@ import { listOrderNotes, replaceOrderNotes, type LocalOrderNote } from "./localO
 import { listTraceRecords, replaceTraceRecords, type TraceRecord } from "./traceHistory";
 import { readFoundry, writeFoundry, type Foundry } from "./foundry";
 import { listSchemes, saveSchemes, isDefault, type LicenseScheme } from "./schemes";
+import { invalidateAll } from "./cache";
 import { apiAccount } from "../api/client";
 
 /* ---------- 导入导出（本地 JSON 文件，v2 含本地订单关联） ---------- */
@@ -169,6 +170,9 @@ export async function applyExportFile(
       fontsRestored++;
     }
   }
+  // 整库都被替换过了 ⇒ 缓存与页面快照全部作废（各表自己的失效只覆盖自己那部分，
+  // 而这一步动的是"本机段整体"，漏掉哪一处都会让页面停留在导入前的样子）
+  invalidateAll();
   return {
     customers: raw.customers.length,
     fonts: raw.fonts?.length ?? 0,

@@ -17,8 +17,8 @@
  */
 
 import { Link } from "react-router-dom";
-import type { TraceRecord, TraceRecordCandidate } from "../lib/traceHistory";
-import { channelScores } from "../lib/traceHistory";
+import type { TraceRecord, TraceRecordCandidate, UniquenessVerdict } from "../lib/traceHistory";
+import { channelScores, marginLine } from "../lib/traceHistory";
 import ProcessSlot, { type PaperProcess } from "./ProcessSlot";
 
 const fmtSize = (n: number) => (n ? (n / 1024 / 1024 >= 1 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`) : "—");
@@ -28,7 +28,8 @@ const shortSha = (s: string) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—"
 
 /** 标签徽章配色（对齐桌面版 labels chip 映射）—— 文书里唯一的彩色，只作标签用 */
 function labelChipStyle(l: string): React.CSSProperties {
-  if (l === "字体完整" || l === "校验通过" || l === "多重验证一致" || l === "双通道交叉验证 ✓"
+  if (l === "字体完整" || l === "校验通过" || l === "多重验证一致" || l === "通道 B 独立一致"
+    || l === "双通道交叉验证 ✓" /* 历史记录里的旧文案，保留配色 */
     || l === "指纹完全吻合" || l === "指纹高度吻合" || l === "指纹吻合" || l === "信号清晰")
     return { background: "#eef3ef", color: "#597060" };
   if (l === "信号正常") return { background: "#f1f4ef", color: "#597060" };
@@ -40,9 +41,21 @@ function labelChipStyle(l: string): React.CSSProperties {
 }
 
 /** 判定 → 一句话结论（文书语言，不用卡片） */
-function verdictSentence(best: TraceRecordCandidate | null) {
+function verdictSentence(best: TraceRecordCandidate | null, uniqueness: UniquenessVerdict | undefined) {
   const oid = (id: string) => <span className="mono">{id}</span>;
   if (!best) return <>未识别出可靠的所属订单。</>;
+  // `multi`：多个订单的相关性都稳且接近 ⇒ **不是歧义，是"都参与过"** ⇒ 都点出来。
+  // 产品口径：这个追溯是给设计师找嫌疑的，追不追责由他自己衡量 —— 工具不替他藏名字。
+  if (uniqueness === "multi")
+    return (
+      <>
+        以下订单的水印特征同时成立且彼此接近，形态与「多副本取平均」一致 ——
+        这些订单都参与过这份字体。
+      </>
+    );
+  // `ambiguous`：最佳只是勉强过线、次优也接近 ⇒ 真分不清是谁 ⇒ 不点名。
+  if (uniqueness === "ambiguous")
+    return <>检测到多个订单的水印特征接近，但均未达确证水平，无法确定签发来源——本报告不点名订单。</>;
   if (best.level === "high")
     return <>与订单 {oid(best.orderId)} 的水印指纹完全吻合，可确认签发来源。</>;
   if (best.level === "trusted")
@@ -121,7 +134,7 @@ export default function TraceReport({ record, process }: {
         的结构差异、水印信号与签发记录进行联合分析。全部计算在本机完成，字体文件未离开设备。
       </p>
 
-      <p className="trace-verdict">判定：{verdictSentence(best)}</p>
+      <p className="trace-verdict">判定：{verdictSentence(best, record.uniqueness)}</p>
 
       {best && (
         <div className="trace-chips">
@@ -139,8 +152,9 @@ export default function TraceReport({ record, process }: {
           <div className="fact"><small>分析时间</small><b>{fmtTime(record.createdAt)}</b></div>
           <div className="fact"><small>分析方式</small><b>本地联合检测</b></div>
           <div className="fact"><small>自证订单</small><b className="mono hash-cell">{record.selfClaimOrder ?? "无"}</b></div>
-          <div className="fact"><small>综合置信度</small><b>{best ? `${best.score}%` : "—"}</b></div>
+          <div className="fact"><small>信号质量</small><b>{best ? `${best.score}%` : "—"}</b></div>
         </div>
+        <p className="paper-sub">「信号质量」反映水印信号的清晰程度，不表示命中的可能性；判定结论以「判定」等级为准。</p>
       </div>
 
       <div className="trace-sec">
@@ -181,7 +195,7 @@ export default function TraceReport({ record, process }: {
           <div className="trace-rows">
             <div className="trace-row">
               <div className="trace-k">{best.orderId}<span>判定「{best.levelLabel}」</span></div>
-              <div className="trace-v ok">{best.score}% · 命中</div>
+              <div className="trace-v ok">信号质量 {best.score}% · 命中</div>
             </div>
             {others.map((c) => (
               <div className="trace-row" key={c.orderId}>
@@ -190,6 +204,8 @@ export default function TraceReport({ record, process }: {
               </div>
             ))}
           </div>
+          {/* 余量行：把"这个结论有多稳"摆出来（存活数 + 最优/次优 ρ） */}
+          <p className="paper-sub">{marginLine(best, others)}</p>
           <Link className="trace-act" to="/orders">到订单页查看 →</Link>
         </div>
       ) : best ? (
@@ -204,6 +220,8 @@ export default function TraceReport({ record, process }: {
             </div>
           </div>
           <p className="paper-sub">候选比对未达到可确认门槛，故本报告不列出订单号。</p>
+          {/* 未命中也要给余量：读者要能看出"差多少"，而不是只有一个结论 */}
+          <p className="paper-sub">{marginLine(best, others)}</p>
         </div>
       ) : null}
 

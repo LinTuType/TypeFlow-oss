@@ -9,10 +9,33 @@
  */
 
 import { eligibleCodepoints, parseSfnt, type TtfRaw } from "./ttf/reader.js";
+import { unitsPerEmOf } from "./ttf/sfnt.js";
+import { shiftAmplitude } from "./amplitude.js";
 import type { CryptoProvider } from "./crypto.js";
 
-/** 从 manifest 冻结的常量（与 reference 一致） */
-export const ALGO_VERSION = "web-v1";
+/**
+ * 从 manifest 冻结的常量（与 reference 一致）
+ *
+ * ⚠️ **版本号的两代**（`algo_version` 进 `canonical_context` ⇒ 进 `order_root`）：
+ *
+ * | 版本 | 容器 | 位移幅度 |
+ * |---|---|---|
+ * | `web-v1` | glyf（TTF / 可变 TTF） | **固定 ±2** |
+ * | `web-v2` | CFF / CFF2（OTF） | **固定 ±2** |
+ * | **`web-v3`** | glyf | **按 upm 归一化**（`amplitude.ts`） |
+ * | **`web-v4`** | CFF / CFF2 | **按 upm 归一化** |
+ *
+ * 选择规则（HMAC 排序、锚定/配对/扰动池、20 bit 派生）四者**完全相同**，
+ * 差别只在**位移幅度公式**。给 TTF 换版本号不影响已签发订单：云端按**订单行里存的**
+ * `algo_version` 派生 `order_root`，历史订单存的仍是 `web-v1` / `web-v2`。
+ *
+ * `ALGO_VERSION_LEGACY_*` 只用于追溯端：Name 256 被删时不知道签发年代，
+ * 按容器把两代都试一遍（见 `trace.ts`）。
+ */
+export const ALGO_VERSION = "web-v3";
+/** 上一代 TTF 版本号（固定 ±2）—— 仅追溯回退用 */
+export const ALGO_VERSION_LEGACY_TTF = "web-v1";
+
 export const BIT_COUNT = 20;
 export const REDUNDANCY = 3;
 export const ANCHOR_COUNT = 60;
@@ -31,6 +54,13 @@ export interface SelectionResult {
   anchors: number[];
   pairs: number[];
   noises: number[];
+  /**
+   * 本次签发使用的位移幅度（FUnit）—— 由字体 `head.unitsPerEm` 按 `amplitude.shiftAmplitude`
+   * 推导，**不是**自由参数（同一份字体必得同一个值）。
+   *
+   * 只写侧要用：`shiftmap.buildShiftMap` 拿它施加强度；追溯端不需要知道。
+   */
+  shift_amplitude: number;
   noise_shifts: Record<string, number>;
 }
 
@@ -121,11 +151,11 @@ export function bytesToHex(d: Uint8Array): string {
  * 选择阶段的可选入参 —— 让**同一套选择规则**服务两种轮廓容器。
  *
  * ⚠️ `algoVersion` 会进 `canonical_context` ⇒ 进 `order_root` 派生 ⇒ 进 Name 256 与追溯端
- *    "挑哪个解释器"的开关。**TTF（含可变）必须保持 `web-v1`**，否则已签发订单的追溯会断。
- *    OTF/CFF 用新的 `web-v2`（v1 清单已冻结声明 `out_of_scope.cff_otf`）。
+ *    "挑哪个解释器"的开关。默认值按容器由调用方给（TTF 传 `ALGO_VERSION`，OTF 传
+ *    `ALGO_VERSION_CFF`），**不要在这里改默认值** —— 它同时是"重放一份历史配方"时要还原的输入。
  */
 export interface SelectionOpts {
-  /** 算法版本号；默认 `web-v1` */
+  /** 算法版本号；不传则用当前 TTF 版本 `ALGO_VERSION`（= `web-v3`） */
   algoVersion?: string;
   /**
    * 候选码点（升序）。不传则按 TTF 口径现算（glyf 的简单字形）。
@@ -210,12 +240,18 @@ export async function runSelection(
   for (const cp of noisePool) noiseScores.set(cp, await hmacSha256(provider, oroot, `noise:${cp}`));
   const noises = selectTop(noisePool, noiseScores, NOISE_COUNT);
 
-  // 扰动位移：整个 32 字节 digest 视为大端大整数 % 5 - 2（与 Python int.from_bytes 对齐）
+  // 扰动位移：**与锚定/配对同一个幅度**（见 amplitude.ts 的纪律）。
+  // 规则：整个 32 字节 digest 视为大端大整数 % (2A+1) - A
+  //   ⇒ A=2 时值域 {-2,-1,0,+1,+2}（与 web-v1/v2 逐值一致）
+  //   ⇒ A=4 时值域 {-4..+4}，A=1 时值域 {-1,0,+1}
+  // ⚠️ Python 侧同一个式子也必须用（2A+1, A）—— 不然噪声幅度会和信号幅度不一致。
+  const amplitude = shiftAmplitude(unitsPerEmOf(raw));
+  const noiseMod = BigInt(2 * amplitude + 1);
   const noiseShifts: Record<string, number> = {};
   for (const cp of noises) {
     const d = noiseScores.get(cp)!;
     const big = BigInt("0x" + bytesToHex(d));
-    noiseShifts[String(cp)] = Number(big % 5n) - 2;
+    noiseShifts[String(cp)] = Number(big % noiseMod) - amplitude;
   }
 
   const bits = await generateWatermarkBits(provider, orderId, bitsSuffix);
@@ -236,6 +272,7 @@ export async function runSelection(
     anchors,
     pairs,
     noises,
+    shift_amplitude: amplitude,
     noise_shifts: noiseShifts,
   };
 }

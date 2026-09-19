@@ -30,10 +30,12 @@ interface EmbedReq {
   tenantId: string;
   orderId: string;
   bitsSuffix: string;
+  /** 配方里的算法版本号（历史订单是 web-v1 / web-v2）；缺省由引擎按容器取当前版本 */
+  algoVersion?: string;
 }
 
 ctx.onmessage = (e: MessageEvent<EmbedReq>) => {
-  const { id, fontData, orderRoot, tenantId, orderId, bitsSuffix } = e.data;
+  const { id, fontData, orderRoot, tenantId, orderId, bitsSuffix, algoVersion } = e.data;
   void (async () => {
     try {
       const r = await embedWatermark({
@@ -43,6 +45,7 @@ ctx.onmessage = (e: MessageEvent<EmbedReq>) => {
         tenantId,
         orderId,
         bitsSuffix,
+        algoVersion,
       });
       // 结果字节用 Transferable 交回主线程（所有权转移，不拷贝）
       ctx.postMessage(

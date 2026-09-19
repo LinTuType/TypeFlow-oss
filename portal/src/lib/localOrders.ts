@@ -9,6 +9,7 @@
  */
 
 import { STORE, dbGet, dbPut, dbDelete, dbGetAll, openDb, dbClear } from "./db";
+import { CACHE_KEYS, invalidate, readThrough } from "./cache";
 import type { FontContainer } from "./localFonts";
 
 export interface LocalOrderNote {
@@ -46,6 +47,7 @@ export async function saveOrderNote(
   o: Omit<LocalOrderNote, "updatedAt">,
 ): Promise<void> {
   await dbPut(STORE.ORDERS, { ...o, updatedAt: Date.now() });
+  invalidate(CACHE_KEYS.localOrderNotes);
 }
 
 /** 取某订单的本地关联 */
@@ -53,26 +55,28 @@ export async function getOrderNote(orderId: string): Promise<LocalOrderNote | un
   return dbGet<LocalOrderNote>(STORE.ORDERS, orderId);
 }
 
-/** 列出所有本地订单关联 */
+/** 列出所有本地订单关联 —— 走缓存（概览 / 订单 / 客户 / 设置都在读） */
 export async function listOrderNotes(): Promise<LocalOrderNote[]> {
-  return dbGetAll<LocalOrderNote>(STORE.ORDERS);
+  return readThrough(CACHE_KEYS.localOrderNotes, () => dbGetAll<LocalOrderNote>(STORE.ORDERS));
 }
 
 /** 删除一条订单关联 */
 export async function removeOrderNote(orderId: string): Promise<void> {
   await dbDelete(STORE.ORDERS, orderId);
+  invalidate(CACHE_KEYS.localOrderNotes);
 }
 
 /** 清空全部订单关联 */
 export async function clearAllOrderNotes(): Promise<void> {
   const all = await listOrderNotes();
   await Promise.all(all.map((o) => removeOrderNote(o.orderId).catch(() => void 0)));
+  invalidate(CACHE_KEYS.localOrderNotes);
 }
 
 /** 用一份备份替换整个订单关联表（导入时用）——先清空再写入 */
 export async function replaceOrderNotes(items: LocalOrderNote[]): Promise<void> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE.ORDERS, "readwrite");
     const store = tx.objectStore(STORE.ORDERS);
     store.clear();
@@ -80,4 +84,5 @@ export async function replaceOrderNotes(items: LocalOrderNote[]): Promise<void> 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+  invalidate(CACHE_KEYS.localOrderNotes);
 }

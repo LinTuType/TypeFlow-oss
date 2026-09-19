@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { listLocalFonts, type LocalFont } from "../lib/localFonts";
+import { PAGE_KEYS, peekPage, rememberPage } from "../lib/cache";
 import { listCustomers, saveCustomer, genCustomerId, type Customer } from "../lib/localCustomers";
 import { importFontDetail, importFontFile } from "../lib/fontImport";
 import { maybeFolderBackup } from "../lib/backupFolder";
@@ -49,11 +50,19 @@ const TERM_OPTIONS: TermOption[] = [
   { key: "custom", label: "自定义时长", desc: "按年 / 月指定", months: null },
 ];
 
+/* 签发页快照：只包含字体库与客户库两份可选列表（表单填写中的内容不存） */
+interface IssueSnap {
+  localFonts: Array<Omit<LocalFont, "data">>;
+  customers: Customer[];
+}
+
 export default function Issue() {
-  const [localFonts, setLocalFonts] = useState<Array<Omit<LocalFont, "data">>>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  /** 字体库 / 客户库的快照（这两份只在写操作后变） —— 有它切回本页首帧就有可选项 */
+  const [init] = useState(() => peekPage<IssueSnap>(PAGE_KEYS.issue) ?? null);
+  const [localFonts, setLocalFonts] = useState<Array<Omit<LocalFont, "data">>>(init?.localFonts ?? []);
+  const [customers, setCustomers] = useState<Customer[]>(init?.customers ?? []);
   const [foundry, setFoundry] = useState<Foundry>({ name: "", short: "", site: "", seal: "round", sealImage: "" });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(init === null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<IssueOutcome | null>(null);
   const [phase, setPhase] = useState<IssuePhase | null>(null);
@@ -104,6 +113,7 @@ export default function Issue() {
       const [lf, cs] = await Promise.all([listLocalFonts(), listCustomers()]);
       setLocalFonts(lf);
       setCustomers(cs);
+      rememberPage<IssueSnap>(PAGE_KEYS.issue, { localFonts: lf, customers: cs });
     } catch (e) {
       toast.error("数据加载失败", { detail: (e as Error).message });
     } finally {

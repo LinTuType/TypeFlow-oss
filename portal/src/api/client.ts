@@ -6,6 +6,8 @@
  *   生产走同源（静态托管 + worker 同一域名）或配置变量
  */
 
+import { CACHE_KEYS, invalidate, invalidateAll, readThrough } from "../lib/cache";
+
 const TOKEN_KEY = "typeflow_token";
 const TENANT_KEY = "typeflow_tenant";   // 仅用于侧栏显示（谁登录了），不含任何敏感信息
 const VERIFIED_KEY = "typeflow_email_verified";  // 邮箱验证状态（设置页提示用，不参与鉴权）
@@ -95,13 +97,27 @@ export interface FontInfo {
 }
 
 // ── 业务接口 ──
+// ⚠️ 登录 / 注册 / 登出 / 重置密码都换了一个账号 ⇒ 缓存整片作废，否则会把上一位用户
+// 的数据留在下一位的界面上（缓存是模块级的，不随路由切换清空）。
 export const apiAuth = {
-  register: (email: string, password: string, display_name: string, accept_terms: boolean) =>
-    api<{ success: boolean; tenant_id: string }>("POST", "/api/register", { email, password, display_name, accept_terms }),
-  login: (email: string, password: string) =>
-    api<{ success: boolean; token: string; tenant_id: string; display_name?: string; expires_at: number; email_verified?: boolean }>("POST", "/api/login", { email, password }),
+  register: async (email: string, password: string, display_name: string, accept_terms: boolean) => {
+    const r = await api<{ success: boolean; tenant_id: string }>("POST", "/api/register", { email, password, display_name, accept_terms });
+    invalidateAll();
+    return r;
+  },
+  login: async (email: string, password: string) => {
+    const r = await api<{ success: boolean; token: string; tenant_id: string; display_name?: string; expires_at: number; email_verified?: boolean }>("POST", "/api/login", { email, password });
+    invalidateAll();
+    return r;
+  },
   /** 吊销服务端会话（不只是清本地 token） */
-  logout: () => api<{ success: boolean }>("POST", "/api/logout"),
+  logout: async () => {
+    try {
+      return await api<{ success: boolean }>("POST", "/api/logout");
+    } finally {
+      invalidateAll();
+    }
+  },
   /**
    * 忘记密码：无论邮箱存不存在，服务端都回同一句话（防账号枚举）。
    * 邮件通道未配置时 503，message 会说明。
@@ -109,8 +125,11 @@ export const apiAuth = {
   forgotPassword: (email: string) =>
     api<{ success: boolean; message: string }>("POST", "/api/auth/forgot-password", { email }),
   /** 用邮件里的链接换新密码；成功后旧会话全部作废 */
-  resetPassword: (token: string, password: string) =>
-    api<{ success: boolean; message: string }>("POST", "/api/auth/reset-password", { token, password }),
+  resetPassword: async (token: string, password: string) => {
+    const r = await api<{ success: boolean; message: string }>("POST", "/api/auth/reset-password", { token, password });
+    invalidateAll();
+    return r;
+  },
   /** 邮箱验证（注册后邮件里的链接） */
   verifyEmail: (token: string) =>
     api<{ success: boolean; message: string }>("POST", "/api/auth/verify-email", { token }),
@@ -124,8 +143,11 @@ export const apiAccount = {
   /** 条款版本升级后补签（服务端记录时间戳） */
   acceptTerms: () => api<{ success: boolean; terms_version: string }>("POST", "/api/terms/accept"),
   /** 注销账号：不可恢复，需要密码确认 */
-  remove: (password: string) =>
-    api<{ success: boolean; deleted: boolean }>("POST", "/api/account/delete", { password }),
+  remove: async (password: string) => {
+    const r = await api<{ success: boolean; deleted: boolean }>("POST", "/api/account/delete", { password });
+    invalidateAll();
+    return r;
+  },
   /**
    * 取云端全部数据（返回 JSON 对象，不直接下载）。
    * 用途：并入「数据与备份 → 导出数据」——一个文件同时带走本机段与云端段。
@@ -146,27 +168,48 @@ export const apiAccount = {
 };
 
 export const apiFonts = {
-  list: () => api<{ fonts: FontInfo[] }>("GET", "/api/fonts"),
+  /** 字体登记列表（**走缓存**：概览 / 字体库 / 设置页三处都在读，切页不该重发） */
+  list: () => readThrough(CACHE_KEYS.fonts, () => api<{ fonts: FontInfo[] }>("GET", "/api/fonts")),
   /**
    * 登记字体哈希。**只发哈希**：字体名（= 文件名去扩展名，常含客户代号或未发布
    * 信息）留在本机 —— 云端不保存它，字体列表用本机名字显示。
    */
-  register: (d: { original_font_sha256: string }) =>
-    api<{ success: boolean; font_id: string }>("POST", "/api/fonts/register", d),
+  register: async (d: { original_font_sha256: string }) => {
+    const r = await api<{ success: boolean; font_id: string }>("POST", "/api/fonts/register", d);
+    invalidate(CACHE_KEYS.fonts);
+    return r;
+  },
 };
 
 export const apiOrders = {
-  create: (d: { font_id: string; client_id?: string; bits_suffix?: string }) =>
-    api<{ success: boolean; order_id: string; status: string }>("POST", "/api/orders", d),
-  prepare: (order_id: string) =>
-    api<{ success: boolean; order_id: string; status: string; font_sha256?: string }>("POST", "/api/orders/prepare", { order_id }),
-  issuanceRecipe: (order_id: string) =>
-    api<any>("POST", "/api/orders/issuance-recipe", { order_id }),
-  complete: (order_id: string, watermarked_sha256: string) =>
-    api<{ success: boolean; status: string }>("POST", "/api/orders/complete", { order_id, watermarked_sha256 }),
-  cancel: (order_id: string) =>
-    api<{ success: boolean; status: string }>("POST", "/api/orders/cancel", { order_id }),
-  list: () => api<{ orders: OrderInfo[] }>("GET", "/api/orders"),
+  create: async (d: { font_id: string; client_id?: string; bits_suffix?: string }) => {
+    const r = await api<{ success: boolean; order_id: string; status: string }>("POST", "/api/orders", d);
+    invalidate(CACHE_KEYS.orders, CACHE_KEYS.audit);
+    return r;
+  },
+  prepare: async (order_id: string) => {
+    const r = await api<{ success: boolean; order_id: string; status: string; font_sha256?: string }>("POST", "/api/orders/prepare", { order_id });
+    invalidate(CACHE_KEYS.orders, CACHE_KEYS.audit);
+    return r;
+  },
+  /** 签发配方：服务端会推进状态机（draft → prepared → recipe_issued）⇒ 订单列表要失效 */
+  issuanceRecipe: async (order_id: string) => {
+    const r = await api<any>("POST", "/api/orders/issuance-recipe", { order_id });
+    invalidate(CACHE_KEYS.orders, CACHE_KEYS.audit);
+    return r;
+  },
+  complete: async (order_id: string, watermarked_sha256: string) => {
+    const r = await api<{ success: boolean; status: string }>("POST", "/api/orders/complete", { order_id, watermarked_sha256 });
+    invalidate(CACHE_KEYS.orders, CACHE_KEYS.audit);
+    return r;
+  },
+  cancel: async (order_id: string) => {
+    const r = await api<{ success: boolean; status: string }>("POST", "/api/orders/cancel", { order_id });
+    invalidate(CACHE_KEYS.orders, CACHE_KEYS.audit);
+    return r;
+  },
+  /** 订单列表（**走缓存**：概览 / 字体库 / 订单 / 客户 / 设置页五处都在读） */
+  list: () => readThrough(CACHE_KEYS.orders, () => api<{ orders: OrderInfo[] }>("GET", "/api/orders")),
 };
 
 // ── 审计日志（服务端操作台账，只读） ──
@@ -175,7 +218,7 @@ export interface AuditEntry {
   order_id?: string; meta?: Record<string, unknown>;
 }
 export const apiAudit = {
-  list: () => api<{ events: AuditEntry[] }>("GET", "/api/audit"),
+  list: () => readThrough(CACHE_KEYS.audit, () => api<{ events: AuditEntry[] }>("GET", "/api/audit")),
 };
 
 export const apiTrace = {
@@ -186,6 +229,13 @@ export const apiTrace = {
 };
 
 export const apiDashboard = {
+  /**
+   * 概览统计。
+   *
+   * 统计口径全部由「订单列表 + 字体登记」现算（云端没有单独的统计接口），
+   * 所以这里**连同订单列表一起返回** —— 概览页本来就要那个列表来渲染「最近订单」，
+   * 原先它在 `Promise.all` 里又单独调了一次 `apiOrders.list()`，同一份数据取两遍。
+   */
   stats: async () => {
     const [orders, fonts] = await Promise.all([apiOrders.list(), apiFonts.list()]);
     // 客户数 = 订单里出现过的非空 client_id 去重（云端无客户库，口径同客户页）
@@ -199,6 +249,8 @@ export const apiDashboard = {
       orders_issued: orders.orders.filter((o) => o.status === "issued").length,
       orders_active: orders.orders.filter((o) => ["prepared", "recipe_issued"].includes(o.status)).length,
       orders_draft: orders.orders.filter((o) => o.status === "draft").length,
+      /** 订单列表原样带出（概览页「最近订单」要用；不必再单独请求一次） */
+      orders: orders.orders,
     };
   },
 };

@@ -29,6 +29,7 @@ export async function embedWatermarkOtf(params: EmbedParams): Promise<EmbedResul
   const { font: cff, cmap, eligible } = openCff(raw);
 
   // 1. 选择：规则与 TTF 侧完全一致，只有 algoVersion 与候选集来源不同
+  const algoVersion = params.algoVersion ?? ALGO_VERSION_CFF;
   const selection = await runSelection(
     fontData,
     params.masterKey ?? new Uint8Array(0),
@@ -38,7 +39,7 @@ export async function embedWatermarkOtf(params: EmbedParams): Promise<EmbedResul
     bitsSuffix,
     loadAnchorPool(),
     params.orderRoot,
-    { algoVersion: ALGO_VERSION_CFF, eligible },
+    { algoVersion, eligible },
   );
 
   // 2. 码点 → gid → 位移（共用换算与冲突检测）
@@ -73,7 +74,7 @@ export async function embedWatermarkOtf(params: EmbedParams): Promise<EmbedResul
   }
 
   // 4. 重建容器表 + hmtx.lsb + name（其余表逐字节原样）
-  const nameId256 = buildNameId256(ALGO_VERSION_CFF, orderId, selection.font_sha256, bitsSuffix);
+  const nameId256 = buildNameId256(algoVersion, orderId, selection.font_sha256, bitsSuffix);
   const nameOff = raw.tableOffsets.get("name");
   const nameLen = raw.tableLengths.get("name");
   if (nameOff === undefined || nameLen === undefined) {

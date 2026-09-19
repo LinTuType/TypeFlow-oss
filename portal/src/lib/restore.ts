@@ -9,7 +9,7 @@
  * 读回本机段，全程不发请求。云端一行不改，"字体不出本机"的承诺照旧成立。
  */
 
-import { api, apiOrders, type FontInfo, type OrderInfo } from "../api/client";
+import { apiFonts, apiOrders, type FontInfo, type OrderInfo } from "../api/client";
 import { listLocalFonts } from "./localFonts";
 import { listCustomers } from "./localCustomers";
 import { listOrderNotes } from "./localOrders";
@@ -43,7 +43,10 @@ const fontKey = (f: FontInfo): string =>
 export async function detectLocalDataGap(): Promise<LocalDataGap | null> {
   try {
     const [cloud, ordersRes, locals, customers, notes] = await Promise.all([
-      api<{ fonts: FontInfo[] }>("GET", "/api/fonts"),
+      // ⚠️ 必须走 apiFonts.list()（带缓存）。这里原先手写 api("GET","/api/fonts")，
+      // 于是本组件挂在概览/字体库/订单三页上，每次切页都绕过缓存重发一次请求 ——
+      // 外面看起来就是"切页仍在重刷数据"，而罪魁祸首藏在"恢复提示"这个看不见的角落里。
+      apiFonts.list(),
       apiOrders.list(),
       listLocalFonts(),
       listCustomers(),

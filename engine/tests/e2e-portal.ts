@@ -607,6 +607,10 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     /^TRACE-\d{8}-\d{3} · 已完成$/.test(repId), repId);
   const repBody = (await page.textContent("body")) ?? "";
   check("报告命中本次签发的订单", repBody.includes(orderId) && repBody.includes("最可能的签发订单"));
+  // 余量行：外部评审的建议 —— 报告别只给结论，把"这个结论有多稳"摆出来
+  check("报告给出余量行（锚定字存活 + 最优匹配 ρ）",
+    /锚定字存活 \d+ \/ 60 · 最优匹配 ρ [\d.]+/.test(repBody),
+    (repBody.match(/锚定字存活[^。\n]*/) ?? [""])[0]);
 
   // 历史落本机：刷新后仍在 → 可回看同一份报告 → 可导出打印 HTML
   await page.reload();
@@ -897,6 +901,45 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const yAfter = await page.evaluate(() => window.scrollY);
   await page.setViewportSize({ width: 1440, height: 900 });
   check("切页回顶：长页滚到中部后切页，新页从顶部开始", yBefore > 0 && yAfter === 0, `${yBefore} → ${yAfter}`);
+
+  // 4f-2. 切页不重刷（2026-09-18 用户报「每次切换资料库和概览都会重刷数据」）。
+  //   机制在 portal/src/lib/cache.ts 那两层：新鲜期内不发第二次请求 + 页面快照顶住首帧。
+  //   这里同时盯两件事 —— 请求数（重刷的实锤）与骨架（重刷的可见症状）。
+  //   ⚠️ 必须用侧栏点击（SPA 路由）才有意义：page.goto 是整页刷新，缓存本来就该清空。
+  const apiCalls: string[] = [];
+  const onReq = (r: { url(): string }) => {
+    const u = new URL(r.url());
+    if (u.pathname.startsWith("/api/")) apiCalls.push(u.pathname);
+  };
+  // 先把两页各走一遍（把缓存与快照喂热），再从零开始计数
+  await page.goto(PORTAL + "/");
+  await page.waitForTimeout(1400);
+  await page.click(".sidebar-item:has-text('字体库')");
+  await page.waitForTimeout(1400);
+  apiCalls.length = 0;
+  page.on("request", onReq);
+
+  let sawSkeleton = false;
+  /** 切过去之后盯 1.2 秒：只要期间出现过载入骨架，就说明首帧还在等数据 */
+  const watchSkeleton = async () => {
+    for (let i = 0; i < 10; i++) {
+      const t = (await page.textContent("body")) ?? "";
+      if (t.includes("载入字体库") || t.includes("载入订单")) sawSkeleton = true;
+      await page.waitForTimeout(120);
+    }
+  };
+  await page.click(".sidebar-item:has-text('概览')");
+  await watchSkeleton();
+  await page.click(".sidebar-item:has-text('字体库')");
+  await watchSkeleton();
+  await page.click(".sidebar-item:has-text('概览')");
+  await watchSkeleton();
+  page.off("request", onReq);
+
+  check("侧栏来回切「概览 ↔ 字体库」三轮不发任何 API 请求",
+    apiCalls.length === 0,
+    apiCalls.length ? `${apiCalls.length} 次：${[...new Set(apiCalls)].join(" ")}` : "0 次");
+  check("切回任一页都不再出现载入骨架（首帧即内容）", !sawSkeleton);
 
   await page.setViewportSize({ width: 375, height: 720 });
   await page.goto(PORTAL + "/orders");
