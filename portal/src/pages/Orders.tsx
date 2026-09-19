@@ -22,7 +22,7 @@ import { toast } from "../lib/toast";
 import { schemeLabel } from "../lib/schemes";
 import { Modal,  Button, ConfirmButton, PageHeader, Spinner } from "../components/ui";
 import LocalDataNotice from "../components/LocalDataNotice";
-import { IconCopy, IconDownload, IconBan, IconMail } from "../components/Icon";
+import { IconCopy, IconDownload, IconBan, IconMail, IconArchive, IconUnarchive } from "../components/Icon";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -39,13 +39,24 @@ const STATUS_TONE: Record<string, string> = {
   issued: "issued",
   canceled: "",
 };
-/** 状态筛选（F-10）：云端订单量上来后光靠关键字搜索翻不过来 */
+/** 状态筛选（F-10）：云端订单量上来后光靠关键字搜索翻不过来
+ *
+ * 「归档箱」不是状态 —— 归档与状态正交（归档的已签发单状态仍是已签发），
+ * 它只是"从这个箱子里挪到那个箱子"。所以它的语义是**互斥的另一个视图**：
+ * 选它只看归档的，选别的（含「全部」）一律不看归档的。 */
 const STATUS_FILTERS: { key: string; label: string }[] = [
   { key: "", label: "全部" },
   { key: "pending", label: "进行中" },
   { key: "issued", label: "已签发" },
   { key: "canceled", label: "已作废" },
+  { key: "archived", label: "归档箱" },
 ];
+
+/** 归档箱的筛选项 key —— 上面那张表与过滤逻辑共用，别在两处各写一遍字面量 */
+const ARCHIVE_KEY = "archived";
+
+/** 是否在归档箱里（`archived_at` 有值即归档；与 status 无关） */
+const isArchived = (o: OrderInfo): boolean => !!o.archived_at;
 
 /** 授权方案文案 —— 统一读 lib/schemes.ts（设置页可编辑增删，未知 key 回落原文） */
 const schemeName = (note: LocalOrderNote | undefined, fallback?: string): string =>
@@ -145,11 +156,16 @@ export default function Orders() {
   /** 渲染用 */
   const fontLabel = (o: OrderInfo) => localFontName(o) || o.font_name || "字体不在本机";
 
-  /** 本地过滤：状态 + 订单号 / 字体 / 客户名 */
+  /** 本地过滤：归档箱 / 状态 + 订单号 / 字体 / 客户名
+   *
+   * ⚠️ 归档的"排除"必须发生在**状态筛选之前**、且不因 `statusFilter` 为空而跳过 ——
+   * 否则「全部」会把归档单又混回来。 */
   const filtered = useMemo(() => {
-    let list = orders;
+    let list = statusFilter === ARCHIVE_KEY
+      ? orders.filter(isArchived)
+      : orders.filter((o) => !isArchived(o));
     if (statusFilter === "pending") list = list.filter((o) => ["draft", "prepared", "recipe_issued"].includes(o.status));
-    else if (statusFilter) list = list.filter((o) => o.status === statusFilter);
+    else if (statusFilter && statusFilter !== ARCHIVE_KEY) list = list.filter((o) => o.status === statusFilter);
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((o) =>
@@ -230,6 +246,32 @@ export default function Orders() {
       toast.error("复制失败", { detail: (e as Error).message });
     } finally {
       setCopyBusy(false);
+    }
+  };
+
+  /**
+   * 归入 / 移出归档箱。
+   *
+   * 这是"我不想在列表里看见它"，**不是删除**、也不是作废：云端记录原样留着、
+   * 状态一个字不改、追溯照旧能命中它（归档 ≠ 这个水印不存在）。
+   * 随时点「移出归档箱」就回来，所以是普通操作，不做二次确认。
+   */
+  const [archBusy, setArchBusy] = useState(false);
+  const doArchive = async (archived: boolean) => {
+    if (!selOrder) return;
+    setArchBusy(true);
+    try {
+      await apiOrders.archive(selOrder.order_id, archived);
+      toast.info(archived ? `已归入归档箱：${selOrder.order_id}` : `已移出归档箱：${selOrder.order_id}`, {
+        detail: archived
+          ? "云端记录保留，追溯不受影响；随时可在「归档箱」里移出"
+          : "已回到订单列表",
+      });
+      await load();
+    } catch (e) {
+      toast.error(archived ? "归档失败" : "移出失败", { detail: (e as Error).message });
+    } finally {
+      setArchBusy(false);
     }
   };
 
@@ -351,8 +393,17 @@ export default function Orders() {
           </div>
           {filtered.length === 0 ? (
             <div className="empty" style={{ padding: "40px 16px" }}>
-              <div className="empty-title">{q ? "没有匹配的订单" : "还没有订单"}</div>
-              <div className="empty-desc">去「签发」选择字体并填写客户，即可创建第一笔订单。</div>
+              {statusFilter === ARCHIVE_KEY ? (
+                <>
+                  <div className="empty-title">归档箱是空的</div>
+                  <div className="empty-desc">在订单详情里点「归入归档箱」，就能把不想看见的订单（比如测试单）挪到这里。</div>
+                </>
+              ) : (
+                <>
+                  <div className="empty-title">{q ? "没有匹配的订单" : "还没有订单"}</div>
+                  <div className="empty-desc">去「签发」选择字体并填写客户，即可创建第一笔订单。</div>
+                </>
+              )}
             </div>
           ) : filtered.map((o) => (
             <div key={o.order_id} className="trow order-cols"
@@ -433,6 +484,13 @@ export default function Orders() {
                 该订单已作废，仅作记录保留；不参与追溯候选。
               </div>
             )}
+            {isArchived(selOrder) && (
+              <div className="notice" style={{ marginTop: 14 }}>
+                该订单在归档箱里（{new Date(selOrder.archived_at!).toLocaleDateString("zh-CN")} 归档）。
+                归档只是把它从订单列表移走——云端记录、状态与追溯都照旧；
+                点下方「移出归档箱」即可放回列表。
+              </div>
+            )}
 
             <div className="modal-actions">
               <Button onClick={close}>关闭</Button>
@@ -460,6 +518,12 @@ export default function Orders() {
                   icon={<IconBan size={13} />}
                   onConfirm={() => void doCancel()} />
               )}
+              {/* 归档 / 还原：普通操作（随时可逆），所以不要二次确认 */}
+              <Button disabled={archBusy} onClick={() => void doArchive(!isArchived(selOrder))}>
+                {isArchived(selOrder)
+                  ? <><IconUnarchive size={14} />{archBusy ? "处理中…" : "移出归档箱"}</>
+                  : <><IconArchive size={14} />{archBusy ? "处理中…" : "归入归档箱"}</>}
+              </Button>
             </div>
           </>)}
         </Modal>

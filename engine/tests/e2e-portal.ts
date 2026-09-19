@@ -488,8 +488,8 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   //       嵌入是确定性的 ⇒ 结果必须与首次逐字节一致（这是"重新下载"成立的全部依据）
   await page.goto(PORTAL + "/orders");
   await page.waitForSelector(".trow", { timeout: 15000 }).catch(() => {});
-  // §2.5 F-10：状态筛选（下划线式选择语言）
-  check("订单页提供状态筛选", (await page.locator(".choice[aria-label='按状态筛选订单'] button").count()) === 4);
+  // §2.5 F-10：状态筛选（下划线式选择语言）—— 5 个：全部 / 进行中 / 已签发 / 已作废 / 归档箱
+  check("订单页提供状态筛选", (await page.locator(".choice[aria-label='按状态筛选订单'] button").count()) === 5);
   await page.locator(".choice button:has-text('已作废')").click();
   await page.waitForTimeout(200);
   check("筛选「已作废」→ 空态", ((await page.textContent("body")) ?? "").includes("还没有订单"));
@@ -563,6 +563,42 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   check("订单模态框 Esc 可关", (await page.locator(".modal-back").count()) === 0);
   const bodyOv = await page.evaluate(() => document.body.style.overflow);
   check("模态框关闭后背景滚动解锁", bodyOv === "", `overflow=${bodyOv || "(空)"}`);
+
+  // 4b-2b. 归档箱（2026-09-19）—— 归档是**独立于状态**的另一个箱子：不是删除、也不是作废。
+  // 起因：用户报「订单删除不了，测试单都留在我账号里」。给的是"移走、随时可还原"，
+  // **刻意不做删除** —— 删了会让追溯回一句"没有对应历史订单"，而那份字体里其实还带着水印。
+  await page.locator(`.trow:has-text('${orderId}')`).click();
+  await page.waitForTimeout(400);
+  const archBtn = page.locator(".modal button:has-text('归入归档箱')");
+  check("订单详情提供「归入归档箱」入口", (await archBtn.count()) === 1);
+  await archBtn.click();
+  await page.waitForTimeout(1000);          // 归档后门户会重新拉列表
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+
+  check("归档后从主列表（全部）消失",
+    (await page.locator(`.trow:has-text('${orderId}')`).count()) === 0);
+
+  await page.locator(".choice button:has-text('归档箱')").click();
+  await page.waitForTimeout(300);
+  check("归档箱里能看到它", (await page.locator(`.trow:has-text('${orderId}')`).count()) === 1);
+  // ⚠️ 归档**不改状态**：仍是「已签发」—— 追溯候选与「重新生成交付包」都吃这个状态
+  const archStatus = (((await page.locator(`.trow:has-text('${orderId}') .status`).textContent()) ?? "")).trim();
+  check("归档不改状态（归档箱里仍显示「已签发」）", archStatus === "已签发", archStatus);
+
+  await page.locator(`.trow:has-text('${orderId}')`).click();
+  await page.waitForTimeout(400);
+  await page.locator(".modal button:has-text('移出归档箱')").click();
+  await page.waitForTimeout(1000);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+  check("归档箱空态写人话",
+    ((await page.textContent("body")) ?? "").includes("归档箱是空的"));
+
+  await page.locator(".choice button:has-text('全部')").click();
+  await page.waitForTimeout(300);
+  check("移出归档箱后回到主列表",
+    (await page.locator(`.trow:has-text('${orderId}')`).count()) === 1);
 
   // 概览「最近订单」行：又是另一份字体名映射（不是订单页那份），同样只能读本机字体库
   await page.goto(PORTAL + "/");

@@ -88,6 +88,13 @@ export interface OrderInfo {
   watermarked_sha256?: string | null;
   /** 客户 ID（cu_ 开头不透明串；姓名只在用户本机客户库，云端零姓名） */
   client_id?: string;
+  /**
+   * 归档时间戳（毫秒）；`null`/缺省 = 在「我的列表」里。
+   *
+   * ⚠️ 与 `status` **正交**：归档只表示"我不想在列表里看见它"，随时可还原，
+   * 既不动状态机、也不影响追溯（归档单照旧参与追溯候选）。
+   */
+  archived_at?: number | null;
 }
 export interface FontInfo {
   font_id: string;
@@ -208,6 +215,16 @@ export const apiOrders = {
     invalidate(CACHE_KEYS.orders, CACHE_KEYS.audit);
     return r;
   },
+  /**
+   * 归档 / 还原（`archived: false` = 还原）。**不是删除**：只把订单从「我的列表」
+   * 挪进/挪出归档箱，云端记录留着、追溯照常 —— 见 worker 侧 `/api/orders/archive` 的说明。
+   */
+  archive: async (order_id: string, archived = true) => {
+    const r = await api<{ success: boolean; order_id: string; archived_at: number | null }>(
+      "POST", "/api/orders/archive", { order_id, archived });
+    invalidate(CACHE_KEYS.orders, CACHE_KEYS.audit);
+    return r;
+  },
   /** 订单列表（**走缓存**：概览 / 字体库 / 订单 / 客户 / 设置页五处都在读） */
   list: () => readThrough(CACHE_KEYS.orders, () => api<{ orders: OrderInfo[] }>("GET", "/api/orders")),
 };
@@ -238,19 +255,23 @@ export const apiDashboard = {
    */
   stats: async () => {
     const [orders, fonts] = await Promise.all([apiOrders.list(), apiFonts.list()]);
+    // 归档箱里的订单**不进工作视图**（计数、最近订单、待办、客户去重都不算它们）——
+    // 与订单列表页同一口径：归档 = 从"我的桌面"收进箱子，随时能在「归档箱」里翻回来。
+    // 单一排除点就在这里：概览页与订单页都从这份数据算，别在两处各排一次。
+    const visible = orders.orders.filter((o) => !o.archived_at);
     // 客户数 = 订单里出现过的非空 client_id 去重（云端无客户库，口径同客户页）
     const clients = new Set(
-      orders.orders.map((o) => (o.client_id ?? "").trim()).filter(Boolean),
+      visible.map((o) => (o.client_id ?? "").trim()).filter(Boolean),
     );
     return {
       fonts_total: fonts.fonts.length,
       clients_total: clients.size,
-      orders_total: orders.orders.length,
-      orders_issued: orders.orders.filter((o) => o.status === "issued").length,
-      orders_active: orders.orders.filter((o) => ["prepared", "recipe_issued"].includes(o.status)).length,
-      orders_draft: orders.orders.filter((o) => o.status === "draft").length,
+      orders_total: visible.length,
+      orders_issued: visible.filter((o) => o.status === "issued").length,
+      orders_active: visible.filter((o) => ["prepared", "recipe_issued"].includes(o.status)).length,
+      orders_draft: visible.filter((o) => o.status === "draft").length,
       /** 订单列表原样带出（概览页「最近订单」要用；不必再单独请求一次） */
-      orders: orders.orders,
+      orders: visible,
     };
   },
 };

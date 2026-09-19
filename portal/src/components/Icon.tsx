@@ -15,7 +15,7 @@ import type { ComponentType, SVGProps } from "react";
 import {
   House, FileSignature, ScanSearch, Type, UsersRound, ReceiptText,
   ShieldCheck, Settings, Sun, Moon, Menu, Printer, Trash2, Ban,
-  Pencil, RefreshCw, Mail, type LucideIcon,
+  Pencil, RefreshCw, Mail, Archive, ArchiveRestore, type LucideIcon,
 } from "lucide-react";
 
 type P = SVGProps<SVGSVGElement> & { size?: number };
@@ -90,6 +90,8 @@ export const IconSearch = (p: P) => (
    和旁边疏朗的手写垃圾桶也不像一个体系。 */
 export const IconTrash = lucide(Trash2);
 export const IconBan = lucide(Ban);              // 订单·作废（禁止符号）
+export const IconArchive = lucide(Archive);      // 订单·归入归档箱
+export const IconUnarchive = lucide(ArchiveRestore); // 订单·移出归档箱
 
 /* ── 资料库行内操作（客户行 / 字体卡 mini）——与侧栏导航同语义 ── */
 export const IconPencil = lucide(Pencil);        // 客户·编辑
