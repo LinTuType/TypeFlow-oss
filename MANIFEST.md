@@ -5,8 +5,8 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `dc63e8e41c0bef3ea8ca814b6a292c67afe5a163`（branch main，工作树干净） |
-| 导出时间 | 2026-09-23T06:14:41.054Z |
+| 主仓库 commit | `7d8fe70271c6c3768c0203e416afc9a17ecd1f3d`（branch main，工作树干净） |
+| 导出时间 | 2026-09-23T06:36:45.251Z |
 | 文件数 | 161 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
@@ -39,7 +39,7 @@
 | engine/tests/cff-stage1.ts | `0e5368997e58a1e2c5ebd715408213cb7058d686b1a5d0a21e147011c637ebb7` |
 | engine/tests/compare.ts | `7626da16140f2b91f2b15d53718312c54eb0955ec20678a1c1cb796350da8723` |
 | engine/tests/e2e-local-signer.ts | `19c6fa63951ca87b494e091dd2bf84dad2ba51cc38e8f0f0006508de2f413cc0` |
-| engine/tests/e2e-portal.ts | `0b5f517f5b10dc9d9e64b84149055cf2411e255a647b8906448937d663134bbd` |
+| engine/tests/e2e-portal.ts | `7cd711fc9b78fe146e9ecf4b2837f1cd0a2e230a01f01fc0f1313cbaf8c7d0de` |
 | engine/tests/fixtures/hybudai-subset.ttf | `c7ba0d8fad728f232966ea122af60e37ace567fdf4de1297dc081d78ecc5dba1` |
 | engine/tests/fixtures/sourcehan-cff2-subset.otf | `fcef5386b3970166f2c5b42443e887cda0f620892a26ee6269682850a6836fd0` |
 | engine/tests/fixtures/sourcehan-cn-subset.otf | `aab50dd2921973c8d81bb876b07593f373b99f18dc94856d2ffc20b5a4ef43b4` |
@@ -116,7 +116,7 @@
 | portal/src/components/LocalDataNotice.tsx | `83a12c6b1d9e7eab993e3c864556491c9f3f8f0c2ec792a30249a1583d72add5` |
 | portal/src/components/MoreMenu.tsx | `9589b409f6eab0c7baba82d5936ecf26e831b9ad2dd44cb55521bae0fd4e9990` |
 | portal/src/components/NetLog.tsx | `cd3a350221cf7626f70d517e23cd77dd5a8ba8f7b3b308b90307162b4afcfdf4` |
-| portal/src/components/PageStage.tsx | `09f3c35eae01b2edc55a92f84f2752cc19c70ee265aaff94cd760ec91c7dff51` |
+| portal/src/components/PageStage.tsx | `44d2b9e4f30d93ea9576442c81814240b3d3f0ccafaab2d5c2dbe1b409c93f9a` |
 | portal/src/components/ProcessSlot.tsx | `62610cd55bacbe5767da877514831830394f4ff29fda84612f9afa1037dad713` |
 | portal/src/components/Sidebar.tsx | `fbff48efcd3dfe100d03049910fd8a94cdfe792721409ee7b2817c2ce20714eb` |
 | portal/src/components/TabBar.tsx | `077f033cab57195586b3eb24e0d187c8ef7185e162d391426578d7949eb00f46` |
@@ -167,7 +167,7 @@
 | portal/src/pages/Trace.tsx | `fe4f9f2e9b6b40bb71fa9a1a862c49b6d3058213d17d87527cc00b675ee03673` |
 | portal/src/pages/VerifyEmail.tsx | `c2a653dd5a815366fca36c9bc89deb8ccc4600a1d18ee41c02b7ced0afc9ee12` |
 | portal/src/pages/Welcome.tsx | `7d0ea44bf5a3e099047d4525ee36beb8044d64d97c49f6eb886921e970d8b25c` |
-| portal/src/styles/theme-v9-ext.css | `af9b8926d611bb831585aa05f434b3be45aa635393209dab051580ab15462082` |
+| portal/src/styles/theme-v9-ext.css | `60584aa9bdceb4d84b56474665bce8d6812574598c07668689649e5ef16c33bc` |
 | portal/src/styles/theme-v9.css | `321ac49261459c2acc78b0c144f8086124c70fc758d10f05aaa45e7e5079fa4e` |
 | portal/src/vite-env.d.ts | `65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5` |
 | portal/tsconfig.json | `8f2c000dd69ebc121b15206fe406135410a3e2217c19c48bc5350e71301d5596` |

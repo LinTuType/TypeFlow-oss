@@ -218,6 +218,10 @@ export default function PageStage({ routeKey }: { routeKey: string }) {
     // 放在 paint 前执行，用户看不到旧页滚动。
     if (jumped.current) {
       jumped.current = false;
+      // 窄屏的滚动发生在 `.main` 内部（外壳 100dvh + 内容区 overflow:auto，
+      // 见 theme-v9-ext.css 窄屏块），桌面才是 window 滚动 —— 两处都归零，别只归一处。
+      const scroller = document.querySelector(".main");
+      if (scroller) scroller.scrollTop = 0;
       window.scrollTo(0, 0);
     }
     const sig = `${shown.key}|${phase}`;

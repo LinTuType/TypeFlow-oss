@@ -1022,11 +1022,22 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const tabText = (await page.locator(".tab-item").allTextContents()).map((t) => t.trim()).join("/");
   check("窄屏底栏常驻四个入口（概览·签发·字体库·更多）",
     (await page.locator(".tabbar").isVisible()) && tabText === "概览/签发/字体库/更多", tabText);
-  check("底栏固定在视口底部",
-    await page.locator(".tabbar").evaluate((el) => Math.abs(el.getBoundingClientRect().bottom - window.innerHeight) < 1));
-  const padBottom = await page.locator(".main-inner").evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
-  const barH = await page.locator(".tabbar").evaluate((el) => el.getBoundingClientRect().height);
-  check("内容区底部留白 ≥ 底栏高度（内容不被压住）", padBottom >= barH, `padding=${padBottom} tabbar=${barH}`);
+  // 外壳结构：品牌条 / 内容区 / 底栏都在 100dvh 的 `.layout` 里，滚动只发生在 `.main`
+  // （底栏若用 position:fixed 贴屏幕底，iOS 上会被浏览器工具栏压掉一半 —— 见 theme-v9-ext.css）
+  const shellGeo = await page.evaluate(() => {
+    const bar = document.querySelector(".tabbar")!.getBoundingClientRect();
+    const main = document.querySelector(".main")!.getBoundingClientRect();
+    const layout = document.querySelector(".layout")!.getBoundingClientRect();
+    return { barBottom: bar.bottom, barTop: bar.top, mainBottom: main.bottom,
+             layoutH: layout.height, vh: window.innerHeight };
+  });
+  check("外壳高度 = 可视区高度（不越出屏幕）",
+    Math.abs(shellGeo.layoutH - shellGeo.vh) < 1, `layout=${shellGeo.layoutH} vh=${shellGeo.vh}`);
+  check("底栏贴在外壳底部（= 可视区底）",
+    Math.abs(shellGeo.barBottom - shellGeo.vh) < 1, `barBottom=${Math.round(shellGeo.barBottom)}`);
+  check("内容区不伸到底栏之下（滚动在外壳内部）",
+    shellGeo.mainBottom <= shellGeo.barTop + 1,
+    `main=${Math.round(shellGeo.mainBottom)} barTop=${Math.round(shellGeo.barTop)}`);
   check("窄屏不渲染侧栏（导航只在底栏与「更多」菜单里）",
     !(await page.locator(".sidebar").isVisible()));
   check("「更多」菜单默认收起", !(await page.locator(".more-menu").isVisible()));

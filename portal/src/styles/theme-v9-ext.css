@@ -65,27 +65,44 @@
    「更多」在自身右上方弹出菜单，列出放不下的项（追溯 / 客户 / 订单 / 安全与信任 / 设置）
    + 退出登录。窄屏**不再有侧栏**（`.sidebar` 直接 display:none），桌面侧栏不受影响。
    `.more-menu` 常挂载、靠 visibility 收合（这样进退场都有过渡，且 Playwright 的可见性
-   判定认 visibility，断言不会假通过）。 */
+   判定认 visibility，断言不会假通过）。
+
+   ⚠️⚠️ **底栏与品牌条一律不进 `position: fixed`**（2026-09-23 修，用户截图报"页面在顶部时
+   底栏只露一半、上划一下才归位"）：iOS 的浏览器（Safari / 微信 WKWebView）把地址栏这类
+   工具栏**浮在网页之上**，而初始布局用的是「工具栏收起时的大视口」⇒ `fixed; bottom: 0`
+   被算到屏幕物理底部、压在工具栏后面；**页面滚动一次之后 WebKit 重算视口才归位**。
+   正解 = 外壳高度跟随**动态可视区**：`.layout` 用 `100dvh` 的 flex 列，品牌条 / 内容区 /
+   底栏依次排在里面，滚动只发生在中间的 `.main`。这样底栏永远在外壳底边 = 可视区底边，
+   工具栏收放时外壳跟着变，不用等滚动。 */
 .topbar { display: none; }
 .tabbar { display: none; }
 .more-menu, .more-veil { display: none; }
 @media (max-width: 760px) {
-  /* 顶部品牌条（无按钮） */
+  /* 页面本身不滚（滚动交给 .main），避免 body 出现第二条滚动条 */
+  html, body { height: 100%; overflow: hidden; }
+  .layout {
+    position: relative; overflow: hidden;
+    height: 100vh;                 /* 兜底：不认 dvh 的浏览器 */
+    height: 100dvh;                /* 动态可视区高度 —— 工具栏收放实时更新 */
+    display: flex; flex-direction: column;
+  }
+  /* 顶部品牌条（无按钮）—— 外壳第一行 */
   .topbar {
-    display: flex; align-items: center;
-    position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 90;
+    display: flex; align-items: center; flex: 0 0 44px;
     padding: 0 16px;
     background: var(--paper); border-bottom: 1px solid var(--line);
   }
   .topbar-brand { display: flex; align-items: center; gap: 9px; font: 600 14px var(--sans); color: var(--ink); }
-  .main { margin-left: 0; padding-top: 44px; }
-  /* 底部留白 = 底栏 54 + 视觉余量 20（+ iPhone 安全区） */
-  .main-inner { padding: 28px 20px 74px; padding-bottom: calc(54px + 20px + env(safe-area-inset-bottom, 0px)); }
+  /* 内容区 = 外壳里唯一可滚动的部分 */
+  .main {
+    flex: 1 1 auto; min-height: 0;
+    margin-left: 0; overflow-y: auto;
+  }
+  .main-inner { padding: 28px 20px 40px; }
 
-  /* 底部入口（z-index 90 与品牌条同级；遮罩 95 / 抽屉 100 都要盖住它） */
+  /* 底部入口 —— 外壳最后一行，不再是 fixed（见上面那段说明） */
   .tabbar {
-    display: flex; align-items: stretch;
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+    display: flex; align-items: stretch; flex: 0 0 auto;
     height: 54px; height: calc(54px + env(safe-area-inset-bottom, 0px));
     padding-bottom: env(safe-area-inset-bottom, 0px);
     box-sizing: border-box;
@@ -103,13 +120,13 @@
   /* ⚠️ 收起的态必须是 display:none：这块遮罩没有底色，只靠 display 决定是否吃点击。
      漏了这条它会一直挂在内容区之上把点击全拦住（实测 e2e 里点订单行直接超时）。 */
   .more-veil {
-    display: none; position: fixed; left: 0; right: 0; top: 0; z-index: 94;
+    display: none; position: absolute; left: 0; right: 0; top: 0; z-index: 94;
     bottom: calc(54px + env(safe-area-inset-bottom, 0px));
   }
   .more-veil.open { display: block; }
   .more-menu {
     display: flex; flex-direction: column;
-    position: fixed; z-index: 96;
+    position: absolute; z-index: 96;   /* 相对 .layout（底栏在外壳流内，见上面那段说明） */
     right: 10px; bottom: calc(54px + env(safe-area-inset-bottom, 0px) + 10px);
     min-width: 156px;
     background: #fff; border: 1px solid var(--line); border-radius: var(--radius-surface);
