@@ -82,6 +82,11 @@
   html, body { height: 100%; overflow: hidden; }
   .layout {
     position: relative; overflow: hidden;
+    /* ⚠️⚠️ 必须显式写 min-height: 0 —— 外壳的桌面规则是 `.layout { min-height: 100vh }`
+       （第 52 行，不在媒体查询里），只覆盖 height 是没用的：min-height 仍会把它撑到
+       100vh，而 iOS 的 100vh = 「工具栏收起时的大视口」（比可视区高）⇒ 底栏被推到屏幕下方。
+       实测症状：底栏"只露一点点"，而且品牌条会随内容一起滚走（页面在文档级滚动）。 */
+    min-height: 0;
     height: 100vh;                 /* 兜底 1：兜住不认 dvh 的浏览器 */
     height: 100dvh;                /* 兜底 2：JS 还没跑起来时先用它 */
     height: var(--app-h, 100dvh);  /* 主：AppShell 用 window.innerHeight 量出来的可视区高度 */

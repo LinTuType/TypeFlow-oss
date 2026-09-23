@@ -6,44 +6,64 @@
 <meta name="robots" content="noindex" />
 <title>文镇 · 视口诊断</title>
 <style>
-  html, body { margin: 0; background: #FAF9F6; color: #111;
+  * { box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; margin: 0;
+    background: #FAF9F6; color: #111;
     font: 14px/1.7 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 18px 16px 120px; }
-  h1 { margin: 0 0 4px; font-size: 17px; font-weight: 500; }
-  p.sub { margin: 0 0 16px; color: #999; font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  td { padding: 7px 0; border-top: 1px solid #ebe8e2; vertical-align: top; }
-  td.k { color: #555; width: 46%; }
-  td.v { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
-  .ask { margin-top: 20px; padding: 12px 14px; background: #F5F3EF;
-    border-top: 1px solid #ebe8e2; border-bottom: 1px solid #ebe8e2; font-size: 13px; line-height: 1.8; }
-  .ask b { font-weight: 500; }
-  .red { color: #C43A31; }
-  .navy { color: #102d50; }
-  .fixed-bar { position: fixed; left: 0; width: 50%; bottom: 0; height: 56px;
+  /* ↓↓↓ 这一组与门户窄屏外壳逐条相同（含 min-height: 0 那个坑的修正） */
+  .layout { min-height: 0; height: 100vh; height: 100dvh; height: var(--app-h, 100dvh);
+    display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { flex: 0 0 44px; display: flex; align-items: center;
+    padding: 0 16px; background: #FAF9F6; border-bottom: 1px solid #ebe8e2; }
+  .main { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 16px 20px; }
+  .tabbar { flex: 0 0 auto;
+    height: 54px; height: calc(54px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    display: flex; align-items: center; justify-content: center;
+    background: #102d50; color: #fff; font-size: 12px; }
+  /* ↑↑↑ */
+  /* 判别探针：贴屏幕右上角。滚动中间内容时它应该一动不动；
+     如果它跟着内容滚走，说明这个浏览器（或它套的壳）不支持 position: fixed。 */
+  .fixed-probe { position: fixed; top: 0; right: 0; width: 42%; height: 30px; z-index: 9;
     background: #C43A31; color: #fff; font-size: 11px;
     display: flex; align-items: center; justify-content: center; }
-  .js-host { position: fixed; top: 0; right: 0; width: 50%; height: var(--app-h, 100vh); }
-  .js-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 56px;
-    background: #102d50; color: #fff; font-size: 11px;
-    display: flex; align-items: center; justify-content: center; }
+  h1 { margin: 0 0 6px; font-size: 16px; font-weight: 500; }
+  .lead { margin: 0 0 12px; font-size: 13px; color: #555; }
+  ol.q { margin: 0 0 16px; padding-left: 20px; font-size: 13px; }
+  ol.q li { margin-bottom: 8px; }
+  b { font-weight: 500; }
+  .red { color: #C43A31; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  td { padding: 6px 0; border-top: 1px solid #ebe8e2; vertical-align: top; }
+  td.k { color: #555; width: 44%; }
+  td.v { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
+  .filler { margin-top: 14px; border-top: 1px solid #ebe8e2; padding-top: 10px;
+    color: #999; font-size: 12px; }
+  .filler p { margin: 0 0 10px; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>视口诊断</h1>
-  <p class="sub">文镇 TypeFlow · 临时页，看完就删。请把整屏截图发我。</p>
-  <table id="t"></table>
-  <div class="ask">
-    底部两条色条，各占屏幕一半宽度：<br />
-    <b class="red">左·红</b> = position:fixed; bottom:0（上一版做法）<br />
-    <b class="navy">右·蓝</b> = 高度由 JS 量的可视区撑起的容器，贴容器底（这一版做法）<br />
-    请告诉我：哪一条完整可见、哪一条被裁掉了多少。
+<div class="fixed-probe" id="fixedProbe">fixed 探针</div>
+<div class="layout">
+  <div class="topbar"><span style="font-size:14px;">视口诊断</span></div>
+  <div class="main">
+    <h1>这一页用了和门户一样的外壳结构</h1>
+    <p class="lead">顶上那条「视口诊断」和底下那条深蓝，用的就是门户品牌条与底栏的同款写法。
+      请照下面三条回答，再把整屏截图发我。</p>
+    <ol class="q">
+      <li>顶部那条是否<b>始终贴在屏幕最上方</b>？（在中间内容里滑动，它应该一动不动）</li>
+      <li>底部深蓝「底栏在这里」是否<b>完整贴在屏幕最下方</b>？（不是只露一半、或根本看不到）</li>
+      <li>中间内容能不能正常滚动？滚动时上下两条是否都不动？</li>
+      <li><b class="red">右上角那条红色「fixed 探针」</b>：在中间滑动时它动不动？
+        （它应该像钉在屏幕上一样完全不动）</li>
+    </ol>
+    <table id="t"></table>
+    <div class="filler" id="filler">
+      <p>↓ 下面这些行只是为了让中间区域一定滚得起来。</p>
+    </div>
   </div>
+  <div class="tabbar">底栏在这里 · 我完整吗</div>
 </div>
-
-<div class="fixed-bar">fixed bottom:0</div>
-<div class="js-host"><div class="js-bar">JS 量的可视区</div></div>
 
 <script>
   function setAppH() {
@@ -63,39 +83,57 @@
     if (d.parentNode) d.parentNode.removeChild(d);
     return h;
   }
-  function measureInset(prop) {
+  function insetBottom() {
     var d = document.createElement("div");
-    d.style.cssText = "position:absolute;top:-9999px;" + prop + ":env(safe-area-inset-bottom, 0px)";
+    d.style.cssText = "position:absolute;top:-9999px;padding-bottom:env(safe-area-inset-bottom, 0px)";
     document.body.appendChild(d);
-    var v = parseFloat(getComputedStyle(d)[prop]) || 0;
+    var v = parseFloat(getComputedStyle(d).paddingBottom) || 0;
     if (d.parentNode) d.parentNode.removeChild(d);
     return v;
   }
+  function varAppH() {
+    var probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;top:-9999px;width:10px;height:var(--app-h, 0px)";
+    document.body.appendChild(probe);
+    var h = probe.getBoundingClientRect().height;
+    if (probe.parentNode) probe.parentNode.removeChild(probe);
+    return h;
+  }
 
   var vv = window.visualViewport;
+  var shell = document.querySelector(".layout").getBoundingClientRect();
+  var bar = document.querySelector(".tabbar").getBoundingClientRect();
   var rows = [
-    ["浏览器 UA", navigator.userAgent],
-    ["standalone（已加到主屏）", String(matchMedia("(display-mode: standalone)").matches || navigator.standalone || false)],
-    ["window.innerHeight", px(window.innerHeight)],
-    ["window.outerHeight", px(window.outerHeight)],
-    ["visualViewport.height", vv ? px(vv.height) : "无此 API"],
-    ["visualViewport.offsetTop", vv ? px(vv.offsetTop) : "-"],
+    ["UA", navigator.userAgent],
+    ["standalone（加到主屏）", String(matchMedia("(display-mode: standalone)").matches || navigator.standalone || false)],
+    ["matchMedia ≤760px", String(matchMedia("(max-width: 760px)").matches)],
+    ["innerWidth / innerHeight", px(window.innerWidth) + " / " + px(window.innerHeight)],
+    ["visualViewport.height / offsetTop", vv ? px(vv.height) + " / " + px(vv.offsetTop) : "无"],
+    ["本页 .layout 实测高度", px(shell.height)],
+    ["本页 .tabbar 底边 / 视口高", px(bar.bottom) + " / " + px(window.innerHeight)],
+    ["--app-h 实际值", px(varAppH())],
     ["html.clientHeight", px(document.documentElement.clientHeight)],
-    ["body.clientHeight", px(document.body.clientHeight)],
-    ["screen.height / availHeight", px(screen.height) + " / " + px(screen.availHeight)],
-    ["devicePixelRatio", String(window.devicePixelRatio)],
+    ["html.scrollHeight（可滚多高）", px(document.documentElement.scrollHeight)],
     ["实测 100vh", px(measure("100vh"))],
     ["实测 100dvh", px(measure("100dvh"))],
     ["实测 100svh", px(measure("100svh"))],
     ["实测 100lvh", px(measure("100lvh"))],
     ["CSS.supports 100dvh", String(CSS.supports("height", "100dvh"))],
-    ["env(safe-area-inset-bottom)", px(measureInset("paddingBottom"))]
+    ["fixed 探针 computed position", getComputedStyle(document.getElementById("fixedProbe")).position],
+    ["fixed 探针 rect.top（应恒为 0）", px(document.getElementById("fixedProbe").getBoundingClientRect().top)],
+    ["env(safe-area-inset-bottom)", px(insetBottom())],
+    ["screen.height / availHeight", px(screen.height) + " / " + px(screen.availHeight)]
   ];
   var html = "";
   for (var i = 0; i < rows.length; i++) {
     html += '<tr><td class="k">' + rows[i][0] + '</td><td class="v">' + rows[i][1] + "</td></tr>";
   }
   document.getElementById("t").innerHTML = html;
+
+  var filler = document.getElementById("filler");
+  var buf = "";
+  for (var j = 1; j <= 40; j++) buf += "<p>滚动测试行 " + j + "</p>";
+  filler.innerHTML += buf;
 </script>
 </body>
 </html>
