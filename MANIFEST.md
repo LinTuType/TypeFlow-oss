@@ -5,9 +5,9 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `c5e1afdc6b367a50b47289c0fd2d4a96a61047ec`（branch main，工作树干净） |
-| 导出时间 | 2026-09-23T08:23:23.622Z |
-| 文件数 | 162 |
+| 主仓库 commit | `dc24d0f446645185d00303a60b86514c66e7da11`（branch main，工作树干净） |
+| 导出时间 | 2026-09-23T08:25:40.103Z |
+| 文件数 | 161 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
 
@@ -98,7 +98,6 @@
 | portal/index.html | `97ec5a6be9d02eb1f32dc8dfbcf0cec0656b450b959f98193df6348d24254dfb` |
 | portal/package.json | `eb905dd65eb551e2bb0fc6e88f86916d1f0aa5ad90eeafa275cb1064dc0e8121` |
 | portal/public/apple-touch-icon.png | `355af01052b333d82575a3886d32e0f6da50a8f6d737dd4ea76f3f9cac811e00` |
-| portal/public/diag.html | `88741471d72c5768f647b6e6a386cd39a43f1dfb17dc78baf0fd186ade5a0757` |
 | portal/public/favicon-32.png | `479fd4dee5091d7562126acd42c45e2a75e8bc72e24f24640d4f1f0ce662d552` |
 | portal/public/icon-192.png | `83747811b664fd62422d6a1b81f93df29b865c6a00d00c35d8cf333a38fcf9d5` |
 | portal/public/icon-512.png | `ad744e6385eb78cafe1c5038f897afb2bf36c1f18be8fc1369cae16c8846b9ab` |
