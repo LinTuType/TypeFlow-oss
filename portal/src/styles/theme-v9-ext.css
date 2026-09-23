@@ -56,40 +56,78 @@
   .main-inner { padding: 48px 36px 72px; }
 }
 
-/* ── 窄屏外壳（≤760px）：侧栏收成抽屉 + 顶栏（§2.5 F-3）───────────────
+/* ── 窄屏外壳（≤760px）：品牌条 + 底部入口 + 「更多」右下角菜单（§2.5 F-3）──
    此前侧栏 fixed 238px + .main 同宽 margin，375px 手机内容区只剩约 65px，必然不可用。
-   桌面这些元素 display:none，行为零变化。 */
+   桌面这些元素 display:none，行为零变化。
+
+   导航形态（2026-09-23）：原「顶栏汉堡 → 侧栏抽屉」→ 现在「底部常驻入口 + 右下角菜单」。
+   顶部只剩一条 44px 品牌条；底栏 3 个页面入口（概览 / 签发 / 字体库）+「更多」；
+   「更多」在自身右上方弹出菜单，列出放不下的项（追溯 / 客户 / 订单 / 安全与信任 / 设置）
+   + 退出登录。窄屏**不再有侧栏**（`.sidebar` 直接 display:none），桌面侧栏不受影响。
+   `.more-menu` 常挂载、靠 visibility 收合（这样进退场都有过渡，且 Playwright 的可见性
+   判定认 visibility，断言不会假通过）。 */
 .topbar { display: none; }
-.side-veil { display: none; }
+.tabbar { display: none; }
+.more-menu, .more-veil { display: none; }
 @media (max-width: 760px) {
+  /* 顶部品牌条（无按钮） */
   .topbar {
-    display: flex; align-items: center; gap: 10px;
-    position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 90;
-    padding: 0 10px;
+    display: flex; align-items: center;
+    position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 90;
+    padding: 0 16px;
     background: var(--paper); border-bottom: 1px solid var(--line);
   }
-  .topbar-menu {
-    border: 0; background: none; padding: 8px; margin-left: -6px;
-    color: var(--ink); cursor: pointer; display: grid; place-items: center;
-  }
   .topbar-brand { display: flex; align-items: center; gap: 9px; font: 600 14px var(--sans); color: var(--ink); }
-  .main { margin-left: 0; padding-top: 52px; }
-  .main-inner { padding: 28px 20px 72px; }
-  /* 侧栏 → 抽屉（z-index 100 高于遮罩 95 与顶栏 90） */
-  .sidebar {
-    transform: translateX(-102%);
-    transition: transform 220ms var(--ease);
-    box-shadow: 0 0 40px rgba(20, 19, 16, 0.18);
-    width: min(var(--side), 82vw);
+  .main { margin-left: 0; padding-top: 44px; }
+  /* 底部留白 = 底栏 54 + 视觉余量 20（+ iPhone 安全区） */
+  .main-inner { padding: 28px 20px 74px; padding-bottom: calc(54px + 20px + env(safe-area-inset-bottom, 0px)); }
+
+  /* 底部入口（z-index 90 与品牌条同级；遮罩 95 / 抽屉 100 都要盖住它） */
+  .tabbar {
+    display: flex; align-items: stretch;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+    height: 54px; height: calc(54px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+    background: var(--paper); border-top: 1px solid var(--line);
   }
-  .sidebar.open { transform: none; }
-  .side-veil {
-    display: block; position: fixed; inset: 0; z-index: 95;
-    background: rgba(20, 19, 16, 0.28);
-    opacity: 0; pointer-events: none;
-    transition: opacity 220ms var(--ease);
+  .tab-item {
+    flex: 1; min-width: 0;
+    border: 0; background: none; padding: 0; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    font: 400 11px/1 var(--sans); color: var(--muted); text-decoration: none;
   }
-  .side-veil.open { opacity: 1; pointer-events: auto; }
+  .tab-item.active { color: var(--navy); font-weight: 500; }
+
+  /* 「更多」菜单：贴底栏右上方、右对齐；透明遮罩只盖内容区（点底栏别的入口能直接切页） */
+  /* ⚠️ 收起的态必须是 display:none：这块遮罩没有底色，只靠 display 决定是否吃点击。
+     漏了这条它会一直挂在内容区之上把点击全拦住（实测 e2e 里点订单行直接超时）。 */
+  .more-veil {
+    display: none; position: fixed; left: 0; right: 0; top: 0; z-index: 94;
+    bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+  }
+  .more-veil.open { display: block; }
+  .more-menu {
+    display: flex; flex-direction: column;
+    position: fixed; z-index: 96;
+    right: 10px; bottom: calc(54px + env(safe-area-inset-bottom, 0px) + 10px);
+    min-width: 156px;
+    background: #fff; border: 1px solid var(--line); border-radius: var(--radius-surface);
+    padding: 4px 0;
+    opacity: 0; visibility: hidden; transform: translateY(6px);
+    transition: opacity 140ms var(--ease), transform 140ms var(--ease), visibility 140ms;
+  }
+  .more-menu.open { opacity: 1; visibility: visible; transform: none; }
+  .more-item {
+    width: 100%; border: 0; background: none; text-align: left;
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 14px; cursor: pointer;
+    font: 400 14px var(--sans); color: var(--sub); text-decoration: none;
+  }
+  .more-item svg { color: var(--muted); flex-shrink: 0; }
+  .more-item + .more-item { border-top: 1px solid var(--line); }
+  .more-item:hover { background: var(--subtle); }
+  .more-item-quiet { color: var(--muted); }
   /* 模态框：绝不溢出屏幕，内部滚动 */
   .modal { width: min(500px, calc(100vw - 32px)); max-height: calc(100vh - 88px); overflow: auto; }
   /* 纸面与栅格收窄 */
@@ -160,6 +198,14 @@
   cursor: pointer; color: var(--sub);
 }
 .sidebar-account:hover { background: var(--line); }
+
+/* ⚠️ 窄屏没有侧栏（导航入口全在底栏与「更多」菜单里）。
+   这条**必须写在 `.sidebar` 基础规则之后** —— 本文件把窄屏媒体查询块放在前面（第 71 行），
+   media query 不增加特异性 ⇒ 写在里面会被这条 `display:flex` 盖掉（实测 e2e 里
+   侧栏仍可见、把 `.more-veil` 的点击拦下来才发现）。同类结构性覆盖一律提特异性或后置。 */
+@media (max-width: 760px) {
+  .sidebar { display: none; }
+}
 .sidebar-avatar {
   width: 31px; height: 31px; border-radius: 50%;
   display: grid; place-items: center;
@@ -777,7 +823,11 @@ select.input { appearance: auto; }
 .notice.ok { border-left-color: #216e39; background: #f2f8f3; color: #526157; }
 /* ── 模态框进出 ───────────────────────────────────────────────────────
    此前只有 display:none → flex 的硬切。退场需要 Modal 延迟卸载（见 ui.tsx 的 close），
-   所以 .closing 必须写在 .open 之后 —— 两者特异性相同，靠顺序取胜。 */
+   所以 .closing 必须写在 .open 之后 —— 两者特异性相同，靠顺序取胜。
+   ⚠️ z-index 是补的：原型层 .modal-back 没给层级（auto），窄屏加底栏后会被
+   品牌条/底栏（90）压在下面 —— 表现在手机上打开订单详情时，顶栏画在灰遮罩之上。
+   120 高于 品牌条/底栏 90 与抽屉 100，低于 toast 200。 */
+.modal-back { z-index: 120; }
 .modal-back.open { animation: veil-in 160ms var(--ease) both; }
 .modal-back.open .modal { animation: modal-in 220ms cubic-bezier(.16, 1, .3, 1) both; }
 .modal-back.closing { animation: veil-out 200ms cubic-bezier(.4, 0, 1, 1) both; }

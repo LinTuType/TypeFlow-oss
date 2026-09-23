@@ -5,9 +5,9 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `d95a7ed37f770000ad6b791a91264edf9f9ce3d2`（branch main，工作树干净） |
-| 导出时间 | 2026-09-19T14:42:51.784Z |
-| 文件数 | 157 |
+| 主仓库 commit | `dc63e8e41c0bef3ea8ca814b6a292c67afe5a163`（branch main，工作树干净） |
+| 导出时间 | 2026-09-23T06:14:41.054Z |
+| 文件数 | 161 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
 
@@ -39,7 +39,7 @@
 | engine/tests/cff-stage1.ts | `0e5368997e58a1e2c5ebd715408213cb7058d686b1a5d0a21e147011c637ebb7` |
 | engine/tests/compare.ts | `7626da16140f2b91f2b15d53718312c54eb0955ec20678a1c1cb796350da8723` |
 | engine/tests/e2e-local-signer.ts | `19c6fa63951ca87b494e091dd2bf84dad2ba51cc38e8f0f0006508de2f413cc0` |
-| engine/tests/e2e-portal.ts | `477604be1ef2d3467d65b783a9c7a69c8663b4484de378b14242a9f31dea3e1c` |
+| engine/tests/e2e-portal.ts | `0b5f517f5b10dc9d9e64b84149055cf2411e255a647b8906448937d663134bbd` |
 | engine/tests/fixtures/hybudai-subset.ttf | `c7ba0d8fad728f232966ea122af60e37ace567fdf4de1297dc081d78ecc5dba1` |
 | engine/tests/fixtures/sourcehan-cff2-subset.otf | `fcef5386b3970166f2c5b42443e887cda0f620892a26ee6269682850a6836fd0` |
 | engine/tests/fixtures/sourcehan-cn-subset.otf | `aab50dd2921973c8d81bb876b07593f373b99f18dc94856d2ffc20b5a4ef43b4` |
@@ -95,7 +95,7 @@
 | engine/vendor/restructure/src/VersionedStruct.js | `6b3a2cb2aaac605baf9946c407e619db7b209e9b08333264d780b905f2561166` |
 | engine/vendor/restructure/src/utils.js | `08097b546226a78ea66ca6f9df9653d1d84111972443f57c1e344f2c0a1631a7` |
 | package.json | `1c3247f07b7f713329a0ffe314774e9dfd5d4eb5aff4b87ae3206a5711aa7ee6` |
-| portal/index.html | `fe3ac768575d52d04ad0ac7d528ceee0fc921417cd04c9de572864b3056470f2` |
+| portal/index.html | `97ec5a6be9d02eb1f32dc8dfbcf0cec0656b450b959f98193df6348d24254dfb` |
 | portal/package.json | `eb905dd65eb551e2bb0fc6e88f86916d1f0aa5ad90eeafa275cb1064dc0e8121` |
 | portal/public/apple-touch-icon.png | `355af01052b333d82575a3886d32e0f6da50a8f6d737dd4ea76f3f9cac811e00` |
 | portal/public/favicon-32.png | `479fd4dee5091d7562126acd42c45e2a75e8bc72e24f24640d4f1f0ce662d552` |
@@ -106,20 +106,23 @@
 | portal/public/typeflow-local-signer.html | `0ad60977e9fde0735dfc8d626b0ddb2dde8a5a3412457652bdecc1ea30aef2e1` |
 | portal/src/App.tsx | `355e848a1b0ae288c0e5b3d9ba6dc6bebef6ac675431f2629c27fb73c7767d5d` |
 | portal/src/api/client.ts | `f1638b7f4e342dc3ea6980c4eaac30e067b2f69a8f2bf6cdcd5f0310c2b6b98e` |
-| portal/src/components/AppShell.tsx | `00fa8958bd14881f85d54e423e14d2cee9d7eb6bca4f45f0334412cd0881820f` |
+| portal/src/components/AppShell.tsx | `b1a812a633bfcffb3b05ffa956f4e1dcd064e78fa2ce82ee8217961c1b1656af` |
 | portal/src/components/ErrorBoundary.tsx | `3d71bed023439924bf6b59b9cbf018d5aa9c0d180e37f02fd7709d1afe10783c` |
 | portal/src/components/FontPicker.tsx | `bc3998fa9b752ac17ac0b292ab67ce6ebfbe0297bd695ae7756b49af588a4582` |
 | portal/src/components/GlyphPreview.tsx | `0b6ba900455d69699b0524cd68b5890004d24c4f31835803e4e0b9092fe497b5` |
-| portal/src/components/Icon.tsx | `7d8ba99d24a30feb684da62a1f3fe8da56905fa8736ddd2d3181203ed9c9cc56` |
+| portal/src/components/Icon.tsx | `00cb6f4bb604586c592993f45456d0b51856f341db512402dcb541524d159c6b` |
 | portal/src/components/IssueResult.tsx | `c81b6841a6861b23ebe0f8be704874c5c3a54720688cf667361bfd739b9e2008` |
 | portal/src/components/LicensePaper.tsx | `389b9ef540fcf41b6716dfb5356e7ea250cb78c5543493d22faa5981e9834f2c` |
 | portal/src/components/LocalDataNotice.tsx | `83a12c6b1d9e7eab993e3c864556491c9f3f8f0c2ec792a30249a1583d72add5` |
+| portal/src/components/MoreMenu.tsx | `9589b409f6eab0c7baba82d5936ecf26e831b9ad2dd44cb55521bae0fd4e9990` |
 | portal/src/components/NetLog.tsx | `cd3a350221cf7626f70d517e23cd77dd5a8ba8f7b3b308b90307162b4afcfdf4` |
 | portal/src/components/PageStage.tsx | `09f3c35eae01b2edc55a92f84f2752cc19c70ee265aaff94cd760ec91c7dff51` |
 | portal/src/components/ProcessSlot.tsx | `62610cd55bacbe5767da877514831830394f4ff29fda84612f9afa1037dad713` |
-| portal/src/components/Sidebar.tsx | `000e0efe69d1f3087e106bf7b290fee8aff5d4cf70933364fdcfabf6065caddb` |
+| portal/src/components/Sidebar.tsx | `fbff48efcd3dfe100d03049910fd8a94cdfe792721409ee7b2817c2ce20714eb` |
+| portal/src/components/TabBar.tsx | `077f033cab57195586b3eb24e0d187c8ef7185e162d391426578d7949eb00f46` |
 | portal/src/components/ToastHost.tsx | `c916c32c3a7cc0eef9153761d085ccb5ddfca1785a1d876d99e874ddf0599df3` |
 | portal/src/components/TraceReport.tsx | `d367e389f5a40c5bf7a5cef9f7054f4215bdbe86b527c49598daad3c97e7491d` |
+| portal/src/components/navItems.ts | `7f4c68bf5ceca49e1e9cc5a4354776c45c11d65056d09d92fb3e08472260ccc2` |
 | portal/src/components/ui.tsx | `0898f29fce610c05dd5ddd21a48d9ef59bd83bd79fab109b7f27c9200da72ccf` |
 | portal/src/lib/backup.ts | `7928a4aa42ff117694ddb3e91b72844c10fc68fc0dab2b7a0552dc20b1f6bf8b` |
 | portal/src/lib/backupFolder.ts | `64eb61eb987f9186e8138a1977d0dd5ad0279d246ef79afcd29c6eeebd3bebbf` |
@@ -143,6 +146,7 @@
 | portal/src/lib/restore.ts | `d59884462f3c6c6db156da8170d9fcca33067a070a8ef6905bc29b3575ad4d76` |
 | portal/src/lib/schemes.ts | `f00fdc70a2df6bd0e5cfb1ff6b9186354aa412f28956ee30fe2db221a30c1058` |
 | portal/src/lib/sealImage.ts | `1c36a7cfbbce4f4b31e0ab10b81420bbb6f3c062594c1f3d2c516704bd2121e9` |
+| portal/src/lib/session.ts | `f9af77ea3b4ef40cdccec8152f6f1f3b1f4d0fa92f0d0149482bdead4a97427e` |
 | portal/src/lib/toast.ts | `136804c357a9bb4773ae4e6907759ebade963baf0ae1978b465788fa225cc60d` |
 | portal/src/lib/trace.ts | `8f6b7c2de12e07cedd51b49db03528e8b06f4be798e32faac9ba372591592e4a` |
 | portal/src/lib/traceHistory.ts | `cea0626fe7f3ad6d4a4f50cd5eda067cf79dee9ebde5ba732a89b92f56f39084` |
@@ -163,7 +167,7 @@
 | portal/src/pages/Trace.tsx | `fe4f9f2e9b6b40bb71fa9a1a862c49b6d3058213d17d87527cc00b675ee03673` |
 | portal/src/pages/VerifyEmail.tsx | `c2a653dd5a815366fca36c9bc89deb8ccc4600a1d18ee41c02b7ced0afc9ee12` |
 | portal/src/pages/Welcome.tsx | `7d0ea44bf5a3e099047d4525ee36beb8044d64d97c49f6eb886921e970d8b25c` |
-| portal/src/styles/theme-v9-ext.css | `e3b0d3d6837d2ca66c616a32edd4d85ea2afb3e682cb61c6b735ddec3b3a6abe` |
+| portal/src/styles/theme-v9-ext.css | `af9b8926d611bb831585aa05f434b3be45aa635393209dab051580ab15462082` |
 | portal/src/styles/theme-v9.css | `321ac49261459c2acc78b0c144f8086124c70fc758d10f05aaa45e7e5079fa4e` |
 | portal/src/vite-env.d.ts | `65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5` |
 | portal/tsconfig.json | `8f2c000dd69ebc121b15206fe406135410a3e2217c19c48bc5350e71301d5596` |

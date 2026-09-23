@@ -2,7 +2,9 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：窄屏底栏靠 env(safe-area-inset-bottom) 避开 iPhone 底部横条，
+         不声明的话这个变量恒为 0（「添加到主屏幕」后底栏会被 home indicator 压住） -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="字体授权与水印追溯工作台：字体文件不上传，水印嵌入与泄露追溯全部在本机浏览器完成，云端只存哈希与订单号。" />
     <meta name="theme-color" content="#102d50" />
     <!-- 手机「添加到主屏幕」后图标下方的名字（不设则回落 <title>，会被截断） -->

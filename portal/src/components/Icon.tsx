@@ -14,7 +14,7 @@
 import type { ComponentType, SVGProps } from "react";
 import {
   House, FileSignature, ScanSearch, Type, UsersRound, ReceiptText,
-  ShieldCheck, Settings, Sun, Moon, Menu, Printer, Trash2, Ban,
+  ShieldCheck, Settings, Sun, Moon, Menu, MoreHorizontal, LogOut, Printer, Trash2, Ban,
   Pencil, RefreshCw, Mail, Archive, ArchiveRestore, type LucideIcon,
 } from "lucide-react";
 
@@ -42,7 +42,9 @@ export const IconShield = lucide(ShieldCheck);     // 安全与信任
 export const IconSettings = lucide(Settings);      // 设置
 export const IconSun = lucide(Sun);
 export const IconMoon = lucide(Moon);
-export const IconMenu = lucide(Menu);           // 窄屏顶栏·打开导航抽屉
+export const IconMenu = lucide(Menu);           // 旧窄屏顶栏·打开导航抽屉（已被底栏取替，保留给别处备用）
+export const IconMore = lucide(MoreHorizontal); // 窄屏底栏·更多（打开右下角菜单）
+export const IconLogout = lucide(LogOut);       // 窄屏「更多」菜单·退出登录
 
 /* ── 通用符号（内联实现，视觉同 Lucide 24 网格） ── */
 function Svg({ size = 16, children, ...rest }: P) {

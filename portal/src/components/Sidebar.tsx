@@ -1,65 +1,32 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { apiAuth, clearToken, clearTenant, clearEmailVerified, getTenant } from "../api/client";
-import { IconGauge, IconSpark, IconScanSearch, IconLayers, IconUser, IconFile, IconShield, IconSettings } from "./Icon";
+import { getTenant } from "../api/client";
+import { WORK, LIBRARY, BOTTOM_LINKS } from "./navItems";
+import { logoutSession } from "../lib/session";
 
 /**
- * 侧栏导航（240px，固定高度满屏）
+ * 侧栏导航（238px，固定高度满屏）—— **桌面专用**
  *
- * 分组：
+ * 分组（定义在 navItems.ts，与窄屏底栏共用一份）：
  *   工作：概览 / 签发 / 追溯
  *   资料库：字体库 / 客户 / 订单
- *   底部：安全与信任 / 设置 / 暗色切换 / 账户
+ *   底部：安全与信任 / 设置 / 账户
+ *
+ * ⚠️ 窄屏（≤760px）里整条侧栏 `display:none`：那个尺寸下的导航是
+ * 「底部入口 + 更多菜单」（见 TabBar.tsx / MoreMenu.tsx）。侧栏原先兼作窄屏抽屉，
+ * 2026-09-23 改成右下角菜单后已撤掉（`.side-veil` 与 open 态一并删除）。
  */
-
-/* ---- 导航项定义 ---- */
-interface NavItem {
-  to: string;
-  label: string;
-  icon: React.ComponentType<{ size?: number }>;
-  end?: boolean;
-}
-
-const WORK: NavItem[] = [
-  { to: "/", label: "概览", icon: IconGauge, end: true },
-  { to: "/issue", label: "签发", icon: IconSpark },
-  { to: "/trace", label: "追溯", icon: IconScanSearch },
-];
-
-const LIBRARY: NavItem[] = [
-  { to: "/fonts", label: "字体库", icon: IconLayers },
-  { to: "/clients", label: "客户", icon: IconUser },
-  { to: "/orders", label: "订单", icon: IconFile },
-];
-
-const BOTTOM_LINKS: NavItem[] = [
-  { to: "/security", label: "安全与信任", icon: IconShield },
-  { to: "/settings", label: "设置", icon: IconSettings },
-];
 
 interface SidebarProps {
   theme: "light" | "dark";
   onToggleTheme: () => void;
-  /** 窄屏抽屉是否展开（桌面恒为展开态，由 CSS 控制） */
-  open?: boolean;
 }
 
-export default function Sidebar({ theme, onToggleTheme, open }: SidebarProps) {
+export default function Sidebar({ theme, onToggleTheme }: SidebarProps) {
   const navigate = useNavigate();
   const who = getTenant();
 
   const logout = async () => {
-    // 先吊销服务端会话（批次 2 起 token 是可吊销的）；网络失败也要放人走，
-    // 否则用户会卡在一个"点了没反应"的界面上
-    try {
-      await apiAuth.logout();
-    } catch {
-      /* 忽略：本地清干净即可 */
-    }
-    clearToken();
-    // 显示名与验证状态也要清：只清 token 的话，下一位登录者进来看见的是
-    // 上一位的用户名（侧栏问候语），共用设备的场景尤其明显
-    clearTenant();
-    clearEmailVerified();
+    await logoutSession();
     navigate("/login", { replace: true });
   };
 
@@ -67,7 +34,7 @@ export default function Sidebar({ theme, onToggleTheme, open }: SidebarProps) {
     `sidebar-item${isActive ? " active" : ""}`;
 
   return (
-    <aside className={`sidebar${open ? " open" : ""}`}>
+    <aside className="sidebar">
       {/* 品牌 */}
       <button className="sidebar-brand" onClick={() => navigate("/")}>
         <img className="sidebar-logo" src="/logo.svg" alt="文镇" />

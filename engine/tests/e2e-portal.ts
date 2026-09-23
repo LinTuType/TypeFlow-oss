@@ -1011,23 +1011,56 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
     apiCalls.length ? `${apiCalls.length} 次：${[...new Set(apiCalls)].join(" ")}` : "0 次");
   check("切回任一页都不再出现载入骨架（首帧即内容）", !sawSkeleton);
 
+  // 导航形态（2026-09-23）：顶部只剩品牌条，入口在底部（3 个页面 + 「更多」右下角菜单）。
   await page.setViewportSize({ width: 375, height: 720 });
   await page.goto(PORTAL + "/orders");
   await page.waitForSelector(".trow", { timeout: 15000 }).catch(() => {});
-  check("窄屏显示顶栏（汉堡入口）",
-    (await page.locator(".topbar").isVisible()) && (await page.locator(".topbar-menu").isVisible()));
-  check("窄屏侧栏默认收起（抽屉态）",
-    await page.locator(".sidebar").evaluate((el) => el.getBoundingClientRect().left < 0));
-  await page.click(".topbar-menu");
-  await page.waitForTimeout(450);
-  check("点汉堡后抽屉展开",
-    await page.locator(".sidebar").evaluate((el) => el.getBoundingClientRect().left === 0));
-  await page.click(".sidebar-item:has-text('签发')");
-  await page.waitForURL("**/issue", { timeout: 10000 }).catch(() => {});
-  await page.waitForTimeout(450);   // 等收起过渡（220ms）走完再量位置
-  check("抽屉内点导航跳转并自动收起",
-    page.url().endsWith("/issue")
-    && await page.locator(".sidebar").evaluate((el) => el.getBoundingClientRect().left < 0));
+  check("窄屏品牌条在顶部且已无汉堡入口",
+    (await page.locator(".topbar").isVisible())
+    && (await page.locator(".topbar-brand").isVisible())
+    && (await page.locator(".topbar-menu").count()) === 0);
+  const tabText = (await page.locator(".tab-item").allTextContents()).map((t) => t.trim()).join("/");
+  check("窄屏底栏常驻四个入口（概览·签发·字体库·更多）",
+    (await page.locator(".tabbar").isVisible()) && tabText === "概览/签发/字体库/更多", tabText);
+  check("底栏固定在视口底部",
+    await page.locator(".tabbar").evaluate((el) => Math.abs(el.getBoundingClientRect().bottom - window.innerHeight) < 1));
+  const padBottom = await page.locator(".main-inner").evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
+  const barH = await page.locator(".tabbar").evaluate((el) => el.getBoundingClientRect().height);
+  check("内容区底部留白 ≥ 底栏高度（内容不被压住）", padBottom >= barH, `padding=${padBottom} tabbar=${barH}`);
+  check("窄屏不渲染侧栏（导航只在底栏与「更多」菜单里）",
+    !(await page.locator(".sidebar").isVisible()));
+  check("「更多」菜单默认收起", !(await page.locator(".more-menu").isVisible()));
+  // 透明遮罩没有底色，一旦常驻就会静默吃掉全页点击（漏写 display 收合时踩过）
+  check("菜单收起时透明遮罩不拦截点击", !(await page.locator(".more-veil").isVisible()));
+  await page.click(".tab-item:has-text('更多')");
+  await page.waitForTimeout(320);
+  const menuGeo = await page.locator(".more-menu").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { bottom: r.bottom, right: r.right, vw: window.innerWidth };
+  });
+  const barTop = await page.locator(".tabbar").evaluate((el) => el.getBoundingClientRect().top);
+  check("点「更多」后菜单在底栏右上方弹出",
+    (await page.locator(".more-menu").isVisible())
+    && menuGeo.bottom <= barTop + 1
+    && menuGeo.vw - menuGeo.right <= 16,
+    `menuBottom=${Math.round(menuGeo.bottom)} barTop=${Math.round(barTop)} 距右=${Math.round(menuGeo.vw - menuGeo.right)}`);
+  const menuText = (await page.locator(".more-item").allTextContents()).map((t) => t.trim()).join("/");
+  check("菜单列出底栏放不下的项 + 退出登录",
+    menuText === "追溯/客户/订单/安全与信任/设置/退出登录", menuText);
+  await page.click(".more-item:has-text('客户')");
+  await page.waitForURL("**/clients", { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(320);
+  check("菜单里点导航跳转并自动收起",
+    page.url().endsWith("/clients") && !(await page.locator(".more-menu").isVisible()));
+  await page.click(".tab-item:has-text('更多')");
+  await page.waitForTimeout(320);
+  await page.click(".more-veil");
+  await page.waitForTimeout(320);
+  check("点内容区任意处也能收起菜单", !(await page.locator(".more-menu").isVisible()));
+  await page.goto(PORTAL + "/");
+  await page.waitForSelector(".tabbar .tab-item.active", { timeout: 10000 }).catch(() => {});
+  check("底栏激活项跟随当前页（概览）",
+    ((await page.locator(".tabbar .tab-item.active").textContent()) ?? "").trim() === "概览");
   await page.goto(PORTAL + "/orders");
   await page.waitForSelector(".trow", { timeout: 15000 }).catch(() => {});
   await page.locator(".trow").first().click();
@@ -1035,6 +1068,9 @@ const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const modalW = await page.locator(".modal").evaluate((el) => el.getBoundingClientRect().width);
   const vw = await page.evaluate(() => window.innerWidth);
   check("窄屏模态框不溢出（宽 ≤ 视口-32px）", modalW <= vw - 30, `modal=${Math.round(modalW)} vw=${vw}`);
+  // 修过的层级问题：原型层 .modal-back 没有 z-index，会被品牌条/底栏（90）压在下面
+  check("模态框层级高于品牌条与底栏",
+    await page.locator(".modal-back").evaluate((el) => getComputedStyle(el).zIndex === "120"));
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 1440, height: 900 });
 
