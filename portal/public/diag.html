@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<title>文镇 · 视口诊断</title>
+<style>
+  html, body { margin: 0; background: #FAF9F6; color: #111;
+    font: 14px/1.7 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 18px 16px 120px; }
+  h1 { margin: 0 0 4px; font-size: 17px; font-weight: 500; }
+  p.sub { margin: 0 0 16px; color: #999; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 7px 0; border-top: 1px solid #ebe8e2; vertical-align: top; }
+  td.k { color: #555; width: 46%; }
+  td.v { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
+  .ask { margin-top: 20px; padding: 12px 14px; background: #F5F3EF;
+    border-top: 1px solid #ebe8e2; border-bottom: 1px solid #ebe8e2; font-size: 13px; line-height: 1.8; }
+  .ask b { font-weight: 500; }
+  .red { color: #C43A31; }
+  .navy { color: #102d50; }
+  .fixed-bar { position: fixed; left: 0; width: 50%; bottom: 0; height: 56px;
+    background: #C43A31; color: #fff; font-size: 11px;
+    display: flex; align-items: center; justify-content: center; }
+  .js-host { position: fixed; top: 0; right: 0; width: 50%; height: var(--app-h, 100vh); }
+  .js-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 56px;
+    background: #102d50; color: #fff; font-size: 11px;
+    display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>视口诊断</h1>
+  <p class="sub">文镇 TypeFlow · 临时页，看完就删。请把整屏截图发我。</p>
+  <table id="t"></table>
+  <div class="ask">
+    底部两条色条，各占屏幕一半宽度：<br />
+    <b class="red">左·红</b> = position:fixed; bottom:0（上一版做法）<br />
+    <b class="navy">右·蓝</b> = 高度由 JS 量的可视区撑起的容器，贴容器底（这一版做法）<br />
+    请告诉我：哪一条完整可见、哪一条被裁掉了多少。
+  </div>
+</div>
+
+<div class="fixed-bar">fixed bottom:0</div>
+<div class="js-host"><div class="js-bar">JS 量的可视区</div></div>
+
+<script>
+  function setAppH() {
+    document.documentElement.style.setProperty("--app-h", window.innerHeight + "px");
+  }
+  setAppH();
+  window.addEventListener("resize", setAppH);
+  window.addEventListener("orientationchange", setAppH);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", setAppH);
+
+  function px(v) { return Math.round(v) + "px"; }
+  function measure(cssHeight) {
+    var d = document.createElement("div");
+    d.style.cssText = "position:absolute;top:-9999px;left:0;width:10px;height:" + cssHeight;
+    document.body.appendChild(d);
+    var h = d.getBoundingClientRect().height;
+    if (d.parentNode) d.parentNode.removeChild(d);
+    return h;
+  }
+  function measureInset(prop) {
+    var d = document.createElement("div");
+    d.style.cssText = "position:absolute;top:-9999px;" + prop + ":env(safe-area-inset-bottom, 0px)";
+    document.body.appendChild(d);
+    var v = parseFloat(getComputedStyle(d)[prop]) || 0;
+    if (d.parentNode) d.parentNode.removeChild(d);
+    return v;
+  }
+
+  var vv = window.visualViewport;
+  var rows = [
+    ["浏览器 UA", navigator.userAgent],
+    ["standalone（已加到主屏）", String(matchMedia("(display-mode: standalone)").matches || navigator.standalone || false)],
+    ["window.innerHeight", px(window.innerHeight)],
+    ["window.outerHeight", px(window.outerHeight)],
+    ["visualViewport.height", vv ? px(vv.height) : "无此 API"],
+    ["visualViewport.offsetTop", vv ? px(vv.offsetTop) : "-"],
+    ["html.clientHeight", px(document.documentElement.clientHeight)],
+    ["body.clientHeight", px(document.body.clientHeight)],
+    ["screen.height / availHeight", px(screen.height) + " / " + px(screen.availHeight)],
+    ["devicePixelRatio", String(window.devicePixelRatio)],
+    ["实测 100vh", px(measure("100vh"))],
+    ["实测 100dvh", px(measure("100dvh"))],
+    ["实测 100svh", px(measure("100svh"))],
+    ["实测 100lvh", px(measure("100lvh"))],
+    ["CSS.supports 100dvh", String(CSS.supports("height", "100dvh"))],
+    ["env(safe-area-inset-bottom)", px(measureInset("paddingBottom"))]
+  ];
+  var html = "";
+  for (var i = 0; i < rows.length; i++) {
+    html += '<tr><td class="k">' + rows[i][0] + '</td><td class="v">' + rows[i][1] + "</td></tr>";
+  }
+  document.getElementById("t").innerHTML = html;
+</script>
+</body>
+</html>

@@ -5,9 +5,9 @@
 
 | 项 | 值 |
 |---|---|
-| 主仓库 commit | `7d8fe70271c6c3768c0203e416afc9a17ecd1f3d`（branch main，工作树干净） |
-| 导出时间 | 2026-09-23T06:36:45.251Z |
-| 文件数 | 161 |
+| 主仓库 commit | `11f2a10723cd26d9bf4cae0215403ea71d6540db`（branch main，工作树干净） |
+| 导出时间 | 2026-09-23T08:11:11.723Z |
+| 文件数 | 162 |
 
 逐文件 SHA-256（与信任页「源码自证」实时算出的哈希对照）：
 
@@ -98,6 +98,7 @@
 | portal/index.html | `97ec5a6be9d02eb1f32dc8dfbcf0cec0656b450b959f98193df6348d24254dfb` |
 | portal/package.json | `eb905dd65eb551e2bb0fc6e88f86916d1f0aa5ad90eeafa275cb1064dc0e8121` |
 | portal/public/apple-touch-icon.png | `355af01052b333d82575a3886d32e0f6da50a8f6d737dd4ea76f3f9cac811e00` |
+| portal/public/diag.html | `9d16fa3521da6a1585142f1076648d17925f73720e92292c68d615fae0bb4488` |
 | portal/public/favicon-32.png | `479fd4dee5091d7562126acd42c45e2a75e8bc72e24f24640d4f1f0ce662d552` |
 | portal/public/icon-192.png | `83747811b664fd62422d6a1b81f93df29b865c6a00d00c35d8cf333a38fcf9d5` |
 | portal/public/icon-512.png | `ad744e6385eb78cafe1c5038f897afb2bf36c1f18be8fc1369cae16c8846b9ab` |
@@ -106,7 +107,7 @@
 | portal/public/typeflow-local-signer.html | `0ad60977e9fde0735dfc8d626b0ddb2dde8a5a3412457652bdecc1ea30aef2e1` |
 | portal/src/App.tsx | `355e848a1b0ae288c0e5b3d9ba6dc6bebef6ac675431f2629c27fb73c7767d5d` |
 | portal/src/api/client.ts | `f1638b7f4e342dc3ea6980c4eaac30e067b2f69a8f2bf6cdcd5f0310c2b6b98e` |
-| portal/src/components/AppShell.tsx | `b1a812a633bfcffb3b05ffa956f4e1dcd064e78fa2ce82ee8217961c1b1656af` |
+| portal/src/components/AppShell.tsx | `2cde34b564e240f89bfacd45944308288d7eb29c560ae06fc83893ded2fce491` |
 | portal/src/components/ErrorBoundary.tsx | `3d71bed023439924bf6b59b9cbf018d5aa9c0d180e37f02fd7709d1afe10783c` |
 | portal/src/components/FontPicker.tsx | `bc3998fa9b752ac17ac0b292ab67ce6ebfbe0297bd695ae7756b49af588a4582` |
 | portal/src/components/GlyphPreview.tsx | `0b6ba900455d69699b0524cd68b5890004d24c4f31835803e4e0b9092fe497b5` |
@@ -167,7 +168,7 @@
 | portal/src/pages/Trace.tsx | `fe4f9f2e9b6b40bb71fa9a1a862c49b6d3058213d17d87527cc00b675ee03673` |
 | portal/src/pages/VerifyEmail.tsx | `c2a653dd5a815366fca36c9bc89deb8ccc4600a1d18ee41c02b7ced0afc9ee12` |
 | portal/src/pages/Welcome.tsx | `7d0ea44bf5a3e099047d4525ee36beb8044d64d97c49f6eb886921e970d8b25c` |
-| portal/src/styles/theme-v9-ext.css | `60584aa9bdceb4d84b56474665bce8d6812574598c07668689649e5ef16c33bc` |
+| portal/src/styles/theme-v9-ext.css | `47b7a5419f355f1bffba22aa5e1ac0820a80666dcf283600a24b6918e1fa7625` |
 | portal/src/styles/theme-v9.css | `321ac49261459c2acc78b0c144f8086124c70fc758d10f05aaa45e7e5079fa4e` |
 | portal/src/vite-env.d.ts | `65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5` |
 | portal/tsconfig.json | `8f2c000dd69ebc121b15206fe406135410a3e2217c19c48bc5350e71301d5596` |

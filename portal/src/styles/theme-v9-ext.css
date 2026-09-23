@@ -82,8 +82,9 @@
   html, body { height: 100%; overflow: hidden; }
   .layout {
     position: relative; overflow: hidden;
-    height: 100vh;                 /* 兜底：不认 dvh 的浏览器 */
-    height: 100dvh;                /* 动态可视区高度 —— 工具栏收放实时更新 */
+    height: 100vh;                 /* 兜底 1：兜住不认 dvh 的浏览器 */
+    height: 100dvh;                /* 兜底 2：JS 还没跑起来时先用它 */
+    height: var(--app-h, 100dvh);  /* 主：AppShell 用 window.innerHeight 量出来的可视区高度 */
     display: flex; flex-direction: column;
   }
   /* 顶部品牌条（无按钮）—— 外壳第一行 */

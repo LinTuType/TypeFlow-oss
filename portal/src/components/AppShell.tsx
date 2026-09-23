@@ -34,6 +34,31 @@ export default function AppShell() {
   const { pathname } = useLocation();
 
   useEffect(() => { applyTheme(theme); }, [theme]);
+  /**
+   * 窄屏外壳高度 = 浏览器「可视区」高度，由 JS 量出来写进 --app-h。
+   *
+   * ⚠️ 别改回纯 CSS 单位（2026-09-23 实测踩过两次）：
+   *   · `100vh` 在 iOS 上等于「工具栏收起时的大视口」，比可视区高 ⇒ 底栏被推到屏幕外；
+   *   · `100dvh` 本意是动态可视区，但在部分 WebKit / 第三方内核上量出来仍是那个大视口，
+   *     而且外壳高度一旦偏大，**滚动也救不回来**（滚动在内容区内部、外壳不动），
+   *     表现成用户报的"固定只显示一半，上划也不能完全呈现"。
+   * `window.innerHeight` 是可视区高度（工具栏之下），且随工具栏收放实时变化，最可靠。
+   */
+  useEffect(() => {
+    const sync = () => {
+      document.documentElement.style.setProperty("--app-h", `${window.innerHeight}px`);
+    };
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("orientationchange", sync);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", sync);
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("orientationchange", sync);
+      vv?.removeEventListener("resize", sync);
+    };
+  }, []);
   // 路由变化即收起「更多」菜单（点菜单项后不要让浮层留在屏幕上）
   useEffect(() => { setMoreOpen(false); }, [pathname]);
   // Esc 也能收
